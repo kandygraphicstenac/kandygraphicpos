@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { HoldSaleBodySchema } from '@/lib/validators/pos';
@@ -47,7 +48,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const held = await prisma.heldSale.create({
-    data: { userId: user.id, label: parsed.data.label, lines: parsed.data.lines },
+    // `lines` comes straight from request.json(), so every element is already a
+    // JSON-safe value; Zod only guarantees it's a non-empty array (see
+    // HoldSaleBodySchema), hence the cast to Prisma's JSON input type.
+    data: {
+      userId: user.id,
+      label: parsed.data.label,
+      lines: parsed.data.lines as Prisma.InputJsonValue,
+    },
     select: { id: true, label: true, lines: true, createdAt: true },
   });
 

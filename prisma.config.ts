@@ -8,8 +8,8 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
-  },
-  seed: {
-    run: "npx tsx prisma/seed.ts",
+    // In this Prisma version the seed command lives under `migrations` and is a
+    // plain string — there is no top-level `seed` key.
+    seed: "npx tsx prisma/seed.ts",
   },
 });
