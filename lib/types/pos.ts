@@ -1,0 +1,110 @@
+// Shared types consumed by both the /api/pos/* route handlers and the
+// /pos client page.  Kept in lib/ so client components can import them without
+// pulling in any server-only route-handler code.
+
+export type BikeModelInfo = {
+  brand: string;
+  model: string;
+  year: number;
+  yearEnd: number | null;
+  country: string | null;
+};
+
+export type PartResult = {
+  type: 'part';
+  id: number;
+  sku: string;
+  name: string;
+  bikeModel: BikeModelInfo;
+  colorScheme: string | null;
+  price: string;
+  /** Included only when the authenticated user is OWNER; null for CASHIER. */
+  cost: string | null;
+  finishedStock: number;
+  reorderLevel: number;
+  /** Sum of SheetContent.remainingQty across all live sheets for this part. */
+  uncutQty: number;
+  imageUrl: string | null;
+  soldSeparately: boolean;
+  isKit: boolean;
+  exactMatch: boolean;
+  locationCode: string | null;
+};
+
+export type SetResult = {
+  type: 'set';
+  id: number;
+  sku: string;
+  name: string;
+  bikeModel: BikeModelInfo;
+  price: string;
+  imageUrl: string | null;
+  packedStock: number;
+  /**
+   * packedStock + min over components of floor(finishedStock / componentQty).
+   * Represents the true sellable quantity when sold as a virtual set.
+   */
+  availability: number;
+  exactMatch: boolean;
+  locationCode: string | null;
+};
+
+export type PosSearchResult = PartResult | SetResult;
+
+export type PosSearchResponse = {
+  items: PosSearchResult[];
+  /** Opaque cursor for the next page; null when this is the last page. */
+  nextCursor: string | null;
+  /** Total items matching the current filters (independent of pagination position). */
+  totalCount: number;
+  /** The trimmed query string that produced these results. */
+  query: string;
+};
+
+// ─── Filters ──────────────────────────────────────────────────────────────────
+
+export type BrandModel = {
+  id: number;
+  model: string;
+  year: number;
+  yearEnd: number | null;
+};
+
+export type BrandEntry = {
+  brand: string;
+  models: BrandModel[];
+};
+
+export type FiltersResponse = {
+  brands: BrandEntry[];
+};
+
+// ─── Set detail (for the set detail modal) ────────────────────────────────────
+
+export type SetComponentDetail = {
+  qty: number;
+  part: {
+    id: number;
+    sku: string;
+    name: string;
+    imageUrl: string | null;
+    finishedStock: number;
+    reorderLevel: number;
+    price: string | null; // null when the component part has no price set
+  };
+};
+
+export type SetDetailResult = {
+  id: number;
+  sku: string;
+  name: string;
+  bikeModel: BikeModelInfo;
+  price: string;
+  imageUrl: string | null;
+  packedStock: number;
+  availability: number;
+  locationCode: string | null;
+  components: SetComponentDetail[];
+  /** Paise saved vs buying components individually. null when no saving. */
+  savingsPaise: number | null;
+};

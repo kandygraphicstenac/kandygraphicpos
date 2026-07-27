@@ -1,26 +1,148 @@
 @import "tailwindcss";
 
+/* Class-based dark mode — next-themes adds class="dark" to <html> */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Design tokens ─────────────────────────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #F7F7F5;
+  --surface: #FFFFFF;
+  --border: #E4E4E0;
+  --border-hover: #C9C9C4;
+  --text: #1A1A18;
+  --text-2: #6B6B66;
+  --text-3: #9C9C96;
+  --accent: #0F6E56;
+  --accent-fg: #FFFFFF;
+  --pill-part-bg: #EEEDFE;
+  --pill-part-fg: #3C3489;
+  --pill-set-bg: #E1F5EE;
+  --pill-set-fg: #085041;
+  --ok-bg: #E1F5EE;
+  --ok-fg: #085041;
+  --warn-bg: #FAEEDA;
+  --warn-fg: #854F0B;
+  --danger-bg: #FCEBEB;
+  --danger-fg: #A32D2D;
+  --company-ud: #1d4ed8;
+  --company-ud-fg: #FFFFFF;
 }
 
+.dark {
+  --bg: #131312;
+  --surface: #1C1C1A;
+  --border: #2C2C2A;
+  --border-hover: #44443F;
+  --text: #ECECEA;
+  --text-2: #A3A39C;
+  --text-3: #6F6F69;
+  --accent: #1D9E75;
+  --accent-fg: #06241C;
+  --pill-part-bg: #26215C;
+  --pill-part-fg: #CECBF6;
+  --pill-set-bg: #04342C;
+  --pill-set-fg: #9FE1CB;
+  --ok-bg: #04342C;
+  --ok-fg: #9FE1CB;
+  --warn-bg: #412402;
+  --warn-fg: #FAC775;
+  --danger-bg: #501313;
+  --danger-fg: #F7C1C1;
+  --company-ud: #60a5fa;
+  --company-ud-fg: #1e3a8a;
+}
+
+/* ── Tailwind token mapping ─────────────────────────────────────────────────── */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-border-hover: var(--border-hover);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-pill-part-bg: var(--pill-part-bg);
+  --color-pill-part-fg: var(--pill-part-fg);
+  --color-pill-set-bg: var(--pill-set-bg);
+  --color-pill-set-fg: var(--pill-set-fg);
+  --color-ok-bg: var(--ok-bg);
+  --color-ok-fg: var(--ok-fg);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-fg: var(--warn-fg);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-fg: var(--danger-fg);
+  --color-company-ud: var(--company-ud);
+  --color-company-ud-fg: var(--company-ud-fg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ── Per-company identity utilities ─────────────────────────────────────────── */
+/* Defined explicitly via @utility so Tailwind emits them unconditionally,
+   independent of JIT scanner heuristics for custom theme tokens. */
+@utility bg-company-ud {
+  background-color: var(--company-ud);
+}
+@utility text-company-ud {
+  color: var(--company-ud);
+}
+@utility text-company-ud-fg {
+  color: var(--company-ud-fg);
+}
+@utility bg-company-ud-subtle {
+  background-color: color-mix(in srgb, var(--company-ud) 10%, transparent);
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────────── */
+body {
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+/* ── Theme icon swap animation ──────────────────────────────────────────────── */
+@keyframes theme-icon-in {
+  from {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.animate-theme-icon {
+  animation: theme-icon-in 150ms ease-out;
+}
+
+/* ── Slide-in animation for the sale confirmation panel ─────────────────────── */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.2s ease-out;
+}
+
+/* ── Print safety: force light theme on receipts ────────────────────────────── */
+@media print {
+  *,
+  *::before,
+  *::after {
+    background: white !important;
+    background-color: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
 }

@@ -1,0 +1,423 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ───────────────────────── Catalog ─────────────────────────
+
+
+
+model BikeModel {
+  id      Int     @id @default(autoincrement())
+  brand   String
+  model   String
+  year    Int                // start year
+  yearEnd Int?               // end year (null = single year)
+  country String? // market version, e.g. "LK", "IN", "JP"
+  parts   Part[]
+  sets    StickerSet[]
+
+  @@unique([brand, model, year, country])
+  @@index([brand, model])
+}
+
+model Part {
+  id             Int       @id @default(autoincrement())
+  sku            String    @unique // also the barcode value (Code 128)
+  name           String // e.g. "Tank decal left"
+  bikeModelId    Int
+  bikeModel      BikeModel @relation(fields: [bikeModelId], references: [id])
+  colorScheme    String? // e.g. "Red/Black"
+  color          String? // e.g. "Red", "Chrome", "Holographic"
+  material       String? // e.g. "Laminated vinyl"
+  price          Decimal?  @db.Decimal(10, 2) // null = no price; item is non-sellable (hidden from POS)
+  cost           Decimal?  @db.Decimal(10, 2)
+  finishedStock  Int       @default(0) // cut, ready to sell
+  reorderLevel   Int       @default(0)
+  soldSeparately Boolean   @default(true)
+  isKit          Boolean   @default(false) // display-only label: shows "Kit" badge instead of "Part"
+  imageUrl       String?
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  locationCode   String?
+  location       Location? @relation(fields: [locationCode], references: [code])
+
+  layoutItems   LayoutItem[]
+  sheetContents SheetContent[]
+  setComponents SetComponent[]
+  stockTxns     StockTxn[]
+  invoiceItems  InvoiceItem[]
+
+  @@index([bikeModelId])
+  @@index([locationCode])
+}
+
+model StickerSet {
+  id          Int       @id @default(autoincrement())
+  sku         String    @unique
+  name        String // e.g. "CB125 full graphics kit"
+  bikeModelId Int
+  bikeModel   BikeModel @relation(fields: [bikeModelId], references: [id])
+  setPrice    Decimal   @db.Decimal(10, 2)
+  packedStock Int       @default(0) // pre-kitted sleeves; virtual availability is computed
+  color        String? // e.g. "Red", "Chrome", "Holographic"
+  imageUrl     String?
+  active       Boolean    @default(true)
+  locationCode String?
+  location     Location?  @relation(fields: [locationCode], references: [code])
+
+  components   SetComponent[]
+  invoiceItems InvoiceItem[]
+}
+
+model SetComponent {
+  setId  Int
+  partId Int
+  qty    Int        @default(1)
+  set    StickerSet @relation(fields: [setId], references: [id])
+  part   Part       @relation(fields: [partId], references: [id])
+
+  @@id([setId, partId])
+}
+
+// ───────────────── Manufacturing: layouts & sheets ─────────────────
+
+model PrintLayout {
+  id         Int          @id @default(autoincrement())
+  code       String       @unique // e.g. "L-0045"
+  name       String
+  sheetSize  String? // e.g. "24x36in"
+  active     Boolean      @default(true)
+  items      LayoutItem[]
+  sheets     Sheet[]
+  createdAt  DateTime     @default(now())
+}
+
+model LayoutItem {
+  layoutId    Int
+  partId      Int
+  qtyPerSheet Int
+  layout      PrintLayout @relation(fields: [layoutId], references: [id])
+  part        Part        @relation(fields: [partId], references: [id])
+
+  @@id([layoutId, partId])
+}
+
+model Location {
+  code        String       @id             // e.g. "A-1", "B-3"
+  rack        String?                      // optional breakdown
+  shelf       String?
+  slot        String?
+  description String?
+  active      Boolean      @default(true)
+  sheets      Sheet[]
+  parts       Part[]
+  stickerSets StickerSet[]
+}
+
+enum SheetStatus {
+  UNCUT
+  PARTIAL
+  CONSUMED
+}
+
+model Sheet {
+  id           String        @id // e.g. "SH-2026-00871" (barcode value)
+  layoutId     Int
+  layout       PrintLayout   @relation(fields: [layoutId], references: [id])
+  locationCode String?
+  location     Location?     @relation(fields: [locationCode], references: [code])
+  status       SheetStatus   @default(UNCUT)
+  printDate    DateTime      @default(now())
+  contents     SheetContent[]
+  stockTxns    StockTxn[]
+
+  @@index([status])
+  @@index([locationCode])
+}
+
+model SheetContent {
+  sheetId      String
+  partId       Int
+  printedQty   Int
+  remainingQty Int // counts down on partial cuts
+  sheet        Sheet  @relation(fields: [sheetId], references: [id])
+  part         Part   @relation(fields: [partId], references: [id])
+
+  @@id([sheetId, partId])
+  @@index([partId, remainingQty])
+}
+
+// ───────────────────── Stock movement audit log ─────────────────────
+
+enum TxnType {
+  PRINT // sheets created from a layout
+  CUT_ISSUE // sheet content -> finished part stock
+  KIT // parts -> packed set stock
+  UNKIT // packed set -> parts
+  SALE
+  RETURN
+  ADJUST
+  DAMAGE
+}
+
+model StockTxn {
+  id        String   @id @default(uuid()) // uuid = idempotency-ready
+  type      TxnType
+  partId    Int?
+  part      Part?    @relation(fields: [partId], references: [id])
+  sheetId   String?
+  sheet     Sheet?   @relation(fields: [sheetId], references: [id])
+  qty       Int // signed: + into finished stock, - out
+  reference String? // invoice id, kit batch id, adjustment note
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([partId, createdAt])
+  @@index([type, createdAt])
+}
+
+// ───────────────────────── Sales ─────────────────────────
+
+model Company {
+  id            Int       @id @default(autoincrement())
+  code          String    @unique // e.g. "KG", "UD"
+  name          String    // e.g. "Kandy Graphics"
+  invoicePrefix String    // used in invoice IDs: KG-2026-00001
+  address       String?
+  phone         String?
+  regNo         String?   // business registration number
+  active        Boolean   @default(true)
+  footerMessage String?   // printed at bottom of every receipt
+  warrantyLine  String?   // second footer line (warranty / returns policy)
+  logoUrl       String?   // URL or path to logo used on receipts/invoices
+  invoices      Invoice[]
+}
+
+model Customer {
+  id           Int       @id @default(autoincrement())
+  name         String
+  phone        String?   @unique
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  postalCode   String?
+  bikeInfo     String? // free text or JSON: their bike model(s)
+  notes        String?
+  active       Boolean   @default(true) // deactivated (not deleted) once referenced by invoices/ledger
+  invoices     Invoice[]
+  createdAt    DateTime  @default(now())
+
+  // ── Credit (accounts receivable) ──────────────────────────────────────────
+  creditEnabled Boolean         @default(false)
+  creditLimit   Decimal?        @db.Decimal(10, 2) // null = no limit
+  balance       Decimal         @default(0) @db.Decimal(10, 2) // current amount owed; must always reconcile from CustomerLedger sum
+  ledger        CustomerLedger[]
+
+  @@index([name])
+}
+
+enum CustomerLedgerType {
+  CREDIT_SALE
+  PAYMENT
+  ADJUSTMENT
+}
+
+/**
+ * Append-only audit log for Customer.balance — every balance change is a row
+ * here, written in the same transaction as the balance update, mirroring the
+ * StockTxn discipline (see CLAUDE.md). amount is signed: + increases the
+ * balance owed (CREDIT_SALE), − reduces it (PAYMENT). balance must always be
+ * reconstructable as SUM(amount) over a customer's ledger rows.
+ */
+model CustomerLedger {
+  id         String             @id @default(uuid())
+  customerId Int
+  customer   Customer           @relation(fields: [customerId], references: [id])
+  type       CustomerLedgerType
+  amount     Decimal            @db.Decimal(10, 2)
+  invoiceId  String?
+  invoice    Invoice?           @relation(fields: [invoiceId], references: [id])
+  note       String?
+  userId     Int
+  user       User               @relation(fields: [userId], references: [id])
+  createdAt  DateTime           @default(now())
+
+  @@index([customerId, createdAt])
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  CREDIT // on customer account — no cash collected; see CustomerLedger
+  SPLIT
+}
+
+enum InvoiceStatus {
+  PAID
+  HELD // parked sale
+  REFUNDED
+  PARTIAL_REFUND
+}
+
+enum OrderType {
+  COUNTER  // walk-in, fast, no customer required
+  DELIVERY // requires customer + deliveryAddress + deliveryFee (enforced in saleService)
+}
+
+enum DeliveryStatus {
+  TO_PACK
+  PACKED
+  SHIPPED
+  DELIVERED
+}
+
+model Invoice {
+  id            String        @id // e.g. "KG-2026-00001"
+  companyId     Int           @default(1)
+  company       Company       @relation(fields: [companyId], references: [id])
+  customerId    Int?
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  subtotal      Decimal       @db.Decimal(10, 2)
+  discountPct   Decimal       @default(0) @db.Decimal(5, 2)
+  discountAmt   Decimal       @default(0) @db.Decimal(10, 2)
+  discountReason         String? // required by saleService whenever a discount needs manager approval
+  discountAuthorizedById Int?
+  discountAuthorizedBy   User?  @relation("InvoiceDiscountAuthorizedBy", fields: [discountAuthorizedById], references: [id])
+  total         Decimal       @db.Decimal(10, 2) // product total only — NEVER includes deliveryFee (see CLAUDE.md)
+  deliveryFee     Decimal     @default(0) @db.Decimal(10, 2) // pass-through; excluded from sales/profit aggregates
+  deliveryAddress Json?       // frozen snapshot at sale time: { name, phone, line1, line2, city, postalCode }
+  orderType       OrderType      @default(COUNTER)
+  deliveryStatus  DeliveryStatus? // only set when orderType = DELIVERY; null for COUNTER
+  tendered         Decimal?      @db.Decimal(10, 2) // cash given by customer; null for card/bank
+  paymentReference String?                        // EDC approval ref or bank transfer ID
+  cardLast4        String?                        // last 4 digits of card number
+  payment          PaymentMethod
+  status        InvoiceStatus @default(PAID)
+  userId        Int
+  user          User          @relation("InvoiceCashier", fields: [userId], references: [id])
+  items         InvoiceItem[]
+  returns       Return[]
+  ledgerEntries CustomerLedger[]
+  createdAt     DateTime      @default(now())
+
+  @@index([createdAt])
+  @@index([orderType])
+  @@index([deliveryStatus])
+}
+
+model InvoiceItem {
+  id          Int         @id @default(autoincrement())
+  invoiceId   String
+  invoice     Invoice     @relation(fields: [invoiceId], references: [id])
+  partId      Int? // either part…
+  part        Part?       @relation(fields: [partId], references: [id])
+  setId       Int? // …or set (exactly one is non-null)
+  set         StickerSet? @relation(fields: [setId], references: [id])
+  qty         Int
+  returnedQty Int         @default(0) // cumulative quantity returned so far
+  unitPrice   Decimal     @db.Decimal(10, 2)
+  unitCost    Decimal?    @db.Decimal(10, 2) // snapshotted at sale time; null = pre-existing (falls back to Part.cost for profit estimate)
+  lineTotal   Decimal     @db.Decimal(10, 2)
+  returnItems ReturnItem[]
+}
+
+// ───────────────────────── Returns / refunds ─────────────────────────
+// One Return row per processReturn() call — supports multiple partial returns
+// per invoice, each with its own manager-approved reason + authorizer.
+
+model Return {
+  id                   Int          @id @default(autoincrement())
+  invoiceId            String
+  invoice              Invoice      @relation(fields: [invoiceId], references: [id])
+  refundReason         String
+  refundAuthorizedById Int
+  refundAuthorizedBy   User         @relation("ReturnAuthorizedBy", fields: [refundAuthorizedById], references: [id])
+  userId               Int // cashier who processed the return
+  user                 User         @relation("ReturnProcessedBy", fields: [userId], references: [id])
+  refundAmount         Decimal      @db.Decimal(10, 2)
+  createdAt            DateTime     @default(now())
+  items                ReturnItem[]
+
+  @@index([invoiceId])
+  @@index([createdAt])
+}
+
+model ReturnItem {
+  id            Int         @id @default(autoincrement())
+  returnId      Int
+  return        Return      @relation(fields: [returnId], references: [id])
+  invoiceItemId Int
+  invoiceItem   InvoiceItem @relation(fields: [invoiceItemId], references: [id])
+  qty           Int
+}
+
+// ───────────────────── Manager authorization grants ─────────────────────
+// Created by POST /api/auth/authorize after a manager password re-check.
+// One-time use, short-lived — saleService/returnService consume it
+// server-side and never trust a client-supplied authorizer id.
+
+model ManagerAuthorization {
+  id             String    @id @default(uuid())
+  action         String // 'discount' | 'refund'
+  authorizedById Int
+  authorizedBy   User      @relation(fields: [authorizedById], references: [id])
+  reason         String
+  usedAt         DateTime?
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
+// ───────────────────────── App settings (key/value) ─────────────────────────
+
+model AppSetting {
+  key   String @id
+  value String
+}
+
+// ───────────────────────── Users ─────────────────────────
+
+enum Role {
+  OWNER
+  CASHIER
+  CUTTER
+}
+
+model User {
+  id        Int        @id @default(autoincrement())
+  name      String
+  email     String     @unique
+  role      Role       @default(CASHIER)
+  active    Boolean    @default(true)
+  invoices  Invoice[]  @relation("InvoiceCashier")
+  discountAuthorizedInvoices Invoice[] @relation("InvoiceDiscountAuthorizedBy")
+  returnsProcessed       Return[]  @relation("ReturnProcessedBy")
+  returnsAuthorized      Return[]  @relation("ReturnAuthorizedBy")
+  managerAuthorizations  ManagerAuthorization[]
+  stockTxns StockTxn[]
+  heldSales HeldSale[]
+  customerLedgerEntries CustomerLedger[]
+}
+
+// ─────────────────────────── Held Sales ────────────────────────────
+// Parked carts persisted per user. lines stores CartItem[] as JSON.
+
+model HeldSale {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  label     String   // e.g. "10:32 · Tank decal left"
+  lines     Json     // CartItem[] — prices captured at hold time
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
