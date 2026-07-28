@@ -121,7 +121,9 @@ export function SetsTab({ isOwner }: Props) {
         </div>
       </div>
 
-      <div className="bg-surface border border-border rounded-xl overflow-hidden">
+      {/* overflow-x-auto (not -hidden): actions column is pinned right so it
+          stays reachable while the rest of the table scrolls. */}
+      <div className="bg-surface border border-border rounded-xl overflow-x-auto">
         {isLoading ? (
           <div className="py-16 text-center text-text-3 text-[13px]">Loading…</div>
         ) : sets.length === 0 ? (
@@ -144,7 +146,7 @@ export function SetsTab({ isOwner }: Props) {
                 <th className="text-right px-3 py-3 font-medium">Stock</th>
                 <th className="text-left px-3 py-3 font-medium hidden lg:table-cell">Location</th>
                 <th className="px-3 py-3 font-medium text-center hidden sm:table-cell">Active</th>
-                <th className="px-4 py-3" />
+                <th className="px-4 py-3 sticky right-0 bg-surface shadow-[-1px_0_0_0_var(--border)]" />
               </tr>
             </thead>
             <tbody>
@@ -153,7 +155,7 @@ export function SetsTab({ isOwner }: Props) {
                 const muted = !s.active ? 'text-text-3' : '';
                 return (
                   // No opacity on tr — Edit must remain operable for reactivation
-                  <tr key={s.id} className="border-b border-border last:border-b-0 hover:bg-bg transition-colors duration-75">
+                  <tr key={s.id} className="group border-b border-border last:border-b-0 hover:bg-bg transition-colors duration-75">
                     <td className="pl-4 pr-2 py-3">
                       <input
                         type="checkbox"
@@ -163,12 +165,17 @@ export function SetsTab({ isOwner }: Props) {
                       />
                     </td>
                     <td className={`px-3 py-3 font-mono text-[12px] ${muted}`}>{s.sku}</td>
-                    <td className={`px-3 py-3 ${muted || 'text-text'}`}>{s.name}</td>
+                    <td className={`px-3 py-3 ${muted || 'text-text'}`}>
+                      <div className="truncate max-w-56" title={s.name}>{s.name}</div>
+                    </td>
                     <td className={`px-3 py-3 text-[12px] hidden xl:table-cell ${muted || 'text-text-2'}`}>
-                      {s.color ?? '—'}
+                      <div className="truncate max-w-30">{s.color ?? '—'}</div>
                     </td>
                     <td className={`px-3 py-3 text-[12px] hidden md:table-cell ${muted || 'text-text-2'}`}>
-                      {s.bikeModel.brand} {s.bikeModel.model} {yearLabel(s.bikeModel.year, s.bikeModel.yearEnd)}
+                      {(() => {
+                        const label = `${s.bikeModel.brand} ${s.bikeModel.model} ${yearLabel(s.bikeModel.year, s.bikeModel.yearEnd)}`;
+                        return <div className="truncate max-w-44" title={label}>{label}</div>;
+                      })()}
                     </td>
                     <td className={`px-3 py-3 text-right tabular-nums ${muted}`}>
                       {LKR.format(parseFloat(s.setPrice))}
@@ -192,8 +199,9 @@ export function SetsTab({ isOwner }: Props) {
                         {s.active ? 'Active' : 'Off'}
                       </span>
                     </td>
-                    {/* Actions — always full opacity */}
-                    <td className="px-4 py-3">
+                    {/* Actions — always full opacity. Pinned right so horizontal
+                        scrolling can never put these out of reach. */}
+                    <td className="px-4 py-3 sticky right-0 bg-surface group-hover:bg-bg shadow-[-1px_0_0_0_var(--border)] transition-colors duration-75">
                       <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                         <button
                           type="button"

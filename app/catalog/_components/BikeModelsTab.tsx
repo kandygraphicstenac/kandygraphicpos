@@ -67,7 +67,9 @@ export function BikeModelsTab() {
         </div>
       )}
 
-      <div className="bg-surface border border-border rounded-xl overflow-hidden">
+      {/* overflow-x-auto (not -hidden): actions column is pinned right so it
+          stays reachable while the rest of the table scrolls. */}
+      <div className="bg-surface border border-border rounded-xl overflow-x-auto">
         {models.length === 0 ? (
           <div className="py-16 text-center text-text-3 text-[13px]">No bike models yet. Add one to start cataloguing parts.</div>
         ) : (
@@ -80,20 +82,26 @@ export function BikeModelsTab() {
                 <th className="text-left px-4 py-3 font-medium hidden sm:table-cell">Market</th>
                 <th className="text-right px-4 py-3 font-medium">Parts</th>
                 <th className="text-right px-4 py-3 font-medium hidden sm:table-cell">Sets</th>
-                <th className="px-4 py-3" />
+                <th className="px-4 py-3 sticky right-0 bg-surface shadow-[-1px_0_0_0_var(--border)]" />
               </tr>
             </thead>
             <tbody>
               {models.map((m) => (
-                <tr key={m.id} className="border-b border-border last:border-b-0 hover:bg-bg transition-colors duration-75">
-                  <td className="px-4 py-3 font-medium">{m.brand}</td>
-                  <td className="px-4 py-3 text-text">{m.model}</td>
+                <tr key={m.id} className="group border-b border-border last:border-b-0 hover:bg-bg transition-colors duration-75">
+                  <td className="px-4 py-3 font-medium">
+                    <div className="truncate max-w-36" title={m.brand}>{m.brand}</div>
+                  </td>
+                  <td className="px-4 py-3 text-text">
+                    <div className="truncate max-w-56" title={m.model}>{m.model}</div>
+                  </td>
                   <td className="px-4 py-3 text-text-2 tabular-nums">{yearLabel(m.year, m.yearEnd)}</td>
                   <td className="px-4 py-3 text-text-3 hidden sm:table-cell">{m.country ?? '—'}</td>
                   <td className="px-4 py-3 text-right text-text-2 tabular-nums">{m._count.parts}</td>
                   <td className="px-4 py-3 text-right text-text-2 tabular-nums hidden sm:table-cell">{m._count.sets}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
+                  {/* Actions pinned right so horizontal scrolling can never put
+                      these out of reach. */}
+                  <td className="px-4 py-3 sticky right-0 bg-surface group-hover:bg-bg shadow-[-1px_0_0_0_var(--border)] transition-colors duration-75">
+                    <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                       <button
                         type="button"
                         onClick={() => { setDeleteErr(null); setModalState({ type: 'edit', model: m }); }}

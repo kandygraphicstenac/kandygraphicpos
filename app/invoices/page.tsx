@@ -364,7 +364,9 @@ export default function InvoicesPage() {
         </div>
 
         {/* ── Table ── */}
-        <div className="bg-surface border border-border rounded-xl overflow-hidden">
+        {/* overflow-x-auto (not -hidden) so a narrow window scrolls the table
+            instead of silently clipping the Total column. */}
+        <div className="bg-surface border border-border rounded-xl overflow-x-auto">
           {allInvoices.length === 0 && !isFetching ? (
             <div className="py-16 text-center text-text-3 text-[13px]">
               {q || company || preset || mine || orderType || deliveryStatus

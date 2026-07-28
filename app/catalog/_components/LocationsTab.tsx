@@ -202,7 +202,9 @@ export function LocationsTab() {
         </form>
       )}
 
-      <div className="bg-surface border border-border rounded-xl overflow-hidden">
+      {/* overflow-x-auto (not -hidden): actions column is pinned right so it
+          stays reachable while the rest of the table scrolls. */}
+      <div className="bg-surface border border-border rounded-xl overflow-x-auto">
         {isLoading ? (
           <div className="py-10 text-center text-text-3 text-[13px]">Loading…</div>
         ) : locations.length === 0 ? (
@@ -217,14 +219,14 @@ export function LocationsTab() {
                 <th className="text-left px-3 py-3 font-medium hidden sm:table-cell">Rack / Shelf / Bin</th>
                 <th className="text-left px-3 py-3 font-medium hidden md:table-cell">Description</th>
                 <th className="px-3 py-3 font-medium text-center">Active</th>
-                <th className="px-4 py-3" />
+                <th className="px-4 py-3 sticky right-0 bg-surface shadow-[-1px_0_0_0_var(--border)]" />
               </tr>
             </thead>
             <tbody>
               {locations.map((l) => (
                 <tr
                   key={l.code}
-                  className={`border-b border-border last:border-b-0 ${editCode === l.code ? 'bg-bg' : 'hover:bg-bg'} transition-colors duration-75`}
+                  className={`group border-b border-border last:border-b-0 ${editCode === l.code ? 'bg-bg' : 'hover:bg-bg'} transition-colors duration-75`}
                 >
                   {editCode === l.code ? (
                     <td colSpan={5} className="px-4 py-3">
@@ -258,7 +260,9 @@ export function LocationsTab() {
                         {[l.rack, l.shelf, l.slot].filter(Boolean).join(' / ') || '—'}
                       </td>
                       <td className={`px-3 py-3 hidden md:table-cell text-[12px] ${!l.active ? 'text-text-3' : 'text-text-2'}`}>
-                        {l.description || '—'}
+                        <div className="truncate max-w-64" title={l.description ?? undefined}>
+                          {l.description || '—'}
+                        </div>
                       </td>
                       <td className="px-3 py-3 text-center">
                         <span className={`inline-flex items-center h-5 px-2 rounded text-[10px] font-medium
@@ -266,7 +270,9 @@ export function LocationsTab() {
                           {l.active ? 'Active' : 'Off'}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
+                      {/* Actions pinned right so horizontal scrolling can never
+                          put these out of reach. */}
+                      <td className="px-4 py-3 sticky right-0 bg-surface group-hover:bg-bg shadow-[-1px_0_0_0_var(--border)] transition-colors duration-75">
                         <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                           <button type="button" onClick={() => printLocationLabels([l.code])}
                             className="text-[12px] text-text-3 hover:text-text transition-colors"

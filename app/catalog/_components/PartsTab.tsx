@@ -195,7 +195,10 @@ export function PartsTab({ isOwner }: Props) {
       </div>
 
       {/* Table */}
-      <div className="bg-surface border border-border rounded-xl overflow-hidden">
+      {/* overflow-x-auto (not -hidden): the table is wider than the container on
+          laptops/tablets, and the actions column is pinned right so it stays
+          reachable while the rest scrolls. */}
+      <div className="bg-surface border border-border rounded-xl overflow-x-auto">
         {isLoading ? (
           <div className="py-16 text-center text-text-3 text-[13px]">Loading…</div>
         ) : parts.length === 0 ? (
@@ -220,7 +223,7 @@ export function PartsTab({ isOwner }: Props) {
                 <th className="text-right px-3 py-3 font-medium hidden sm:table-cell">Reorder</th>
                 <th className="text-left px-3 py-3 font-medium hidden lg:table-cell">Location</th>
                 <th className="px-3 py-3 font-medium text-center hidden sm:table-cell">Active</th>
-                <th className="px-4 py-3" />
+                <th className="px-4 py-3 sticky right-0 bg-surface shadow-[-1px_0_0_0_var(--border)]" />
               </tr>
             </thead>
             <tbody>
@@ -229,7 +232,7 @@ export function PartsTab({ isOwner }: Props) {
                 const muted = contentMuted(p.active);
                 return (
                   // No opacity on the tr — toggle and Edit must remain at full opacity
-                  <tr key={p.id} className="border-b border-border last:border-b-0 hover:bg-bg transition-colors duration-75">
+                  <tr key={p.id} className="group border-b border-border last:border-b-0 hover:bg-bg transition-colors duration-75">
                     <td className="pl-4 pr-2 py-3">
                       <input
                         type="checkbox"
@@ -260,12 +263,17 @@ export function PartsTab({ isOwner }: Props) {
                         {p.sku}
                       </div>
                     </td>
-                    <td className={`px-3 py-3 ${muted || 'text-text'}`}>{p.name}</td>
+                    <td className={`px-3 py-3 ${muted || 'text-text'}`}>
+                      <div className="truncate max-w-56" title={p.name}>{p.name}</div>
+                    </td>
                     <td className={`px-3 py-3 hidden xl:table-cell text-[12px] ${muted || 'text-text-2'}`}>
-                      {p.color ?? '—'}
+                      <div className="truncate max-w-30">{p.color ?? '—'}</div>
                     </td>
                     <td className={`px-3 py-3 hidden md:table-cell text-[12px] ${muted || 'text-text-2'}`}>
-                      {p.bikeModel.brand} {p.bikeModel.model} {yearLabel(p.bikeModel.year, p.bikeModel.yearEnd)}
+                      {(() => {
+                        const label = `${p.bikeModel.brand} ${p.bikeModel.model} ${yearLabel(p.bikeModel.year, p.bikeModel.yearEnd)}`;
+                        return <div className="truncate max-w-44" title={label}>{label}</div>;
+                      })()}
                     </td>
                     <td className={`px-3 py-3 text-right tabular-nums ${muted}`}>
                       {p.price
@@ -309,8 +317,9 @@ export function PartsTab({ isOwner }: Props) {
                         <span className={`block w-3.5 h-3.5 rounded-full bg-white shadow transition-transform duration-200 mx-0.75 ${p.active ? 'translate-x-3' : 'translate-x-0'}`} />
                       </button>
                     </td>
-                    {/* Actions — always full opacity */}
-                    <td className="px-4 py-3">
+                    {/* Actions — always full opacity. Pinned right so horizontal
+                        scrolling can never put these out of reach. */}
+                    <td className="px-4 py-3 sticky right-0 bg-surface group-hover:bg-bg shadow-[-1px_0_0_0_var(--border)] transition-colors duration-75">
                       <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                         <button
                           type="button"
