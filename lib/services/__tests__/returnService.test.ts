@@ -51,6 +51,9 @@ function buildMockDb(invoice: ReturnType<typeof buildMockInvoice>) {
     part: {
       update: vi.fn().mockResolvedValue({}),
     },
+    stickerSet: {
+      update: vi.fn().mockResolvedValue({}),
+    },
     stockTxn: {
       create: vi.fn().mockResolvedValue({}),
     },
@@ -158,8 +161,8 @@ describe('processReturn — double-return blocked', () => {
   });
 });
 
-describe('processReturn — set component restoration', () => {
-  it('restores each set component part by componentQty × returnQty', async () => {
+describe('processReturn — set stock restoration', () => {
+  it('restores the set\'s own stock and leaves component parts untouched', async () => {
     const items: MockItem[] = [
       {
         id: 1, invoiceId: 'KG-2026-00001', partId: null, setId: 5, set: {
@@ -180,15 +183,36 @@ describe('processReturn — set component restoration', () => {
       mockDb,
     );
 
-    // Returning 1 set: partId 20 restored by 1×1=1, partId 21 by 2×1=2
-    expect(mockTx.part.update).toHaveBeenCalledWith({
-      where: { id: 20 },
-      data: { finishedStock: { increment: 1 } },
+    // Mirrors the sale path: the packed kit goes back on the shelf as one unit.
+    expect(mockTx.stickerSet.update).toHaveBeenCalledWith({
+      where: { id: 5 },
+      data: { packedStock: { increment: 1 } },
     });
-    expect(mockTx.part.update).toHaveBeenCalledWith({
-      where: { id: 21 },
-      data: { finishedStock: { increment: 2 } },
-    });
+    expect(mockTx.part.update).not.toHaveBeenCalled();
+  });
+
+  it('writes a RETURN StockTxn carrying setId', async () => {
+    const items: MockItem[] = [
+      {
+        id: 1, invoiceId: 'KG-2026-00001', partId: null, setId: 5, set: {
+          id: 5, components: [{ setId: 5, partId: 20, qty: 1 }],
+        },
+        qty: 2, returnedQty: 0,
+        unitPrice: D('800.00'), lineTotal: D('1600.00'),
+      },
+    ];
+    const { mockDb, mockTx } = buildMockDb(buildMockInvoice(InvoiceStatus.PAID, items));
+
+    await processReturn(
+      { invoiceId: 'KG-2026-00001', lines: [{ itemId: 1, qty: 2 }], userId: 1, ...AUTH },
+      mockDb,
+    );
+
+    expect(mockTx.stockTxn.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ type: 'RETURN', setId: 5, qty: 2 }),
+      }),
+    );
   });
 
   it('marks REFUNDED when all set items fully returned', async () => {

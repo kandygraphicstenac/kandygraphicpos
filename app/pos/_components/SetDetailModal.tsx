@@ -184,8 +184,7 @@ export function SetDetailModal({ setId, onAddToCart, onClose }: Props) {
 
                 {/* Availability note */}
                 <p className="text-[12px] text-text-3">
-                  Availability: {detail.availability} kit{detail.availability !== 1 ? 's' : ''}
-                  {' '}(deducts all component parts on sale)
+                  In stock: {detail.availability} packed kit{detail.availability !== 1 ? 's' : ''}
                 </p>
               </div>
             </>

@@ -41,12 +41,25 @@ in ONE transaction: SheetContent.remainingQty decreases, Part.finishedStock incr
 StockTxn CUT_ISSUE rows written, sheet status updated (PARTIAL or CONSUMED;
 CONSUMED frees the location). Issued stacks get part-SKU barcode labels.
 
-## 3. Selling sets — two modes (support both)
+## 3. Selling sets — a kit is its own stocked product
 
-- **Virtual set (default):** selling deducts each component part's finishedStock.
-  Availability = min over components. Maximum flexibility.
-- **Pre-packed set (kitting):** KIT transaction converts component parts into
-  packedStock of the set (physical sleeves with a set barcode). UNKIT reverses.
+Everything is printed on sheets and held as uncut stock. From uncut stock the shop
+packs EITHER loose parts OR a complete kit, and issues them into selling stock. So
+a packed kit is a physical thing with its own count — it is NOT assembled from
+loose selling stock at the time of sale.
+
+- **Set stock is `StickerSet.packedStock`** (physical sleeves with a set barcode),
+  entered/adjusted directly like part stock. Availability = that number.
+- **Selling a set** decrements `packedStock` and writes a SALE StockTxn with
+  `setId`. It never touches component parts. Returns mirror this.
+- **Loose parts and kits are independent stock pools** — selling one never affects
+  the other, so a kit-only product needs no part stock at all.
+- **`SetComponent` is a contents list for reference only** — shown in the set modal
+  and POS set detail so staff can see what's inside, and read at sale time only to
+  snapshot the line's `unitCost`. It does not drive availability or deductions.
+
+Phase 2 will issue kits into `packedStock` from the uncut store (the KIT/UNKIT
+TxnTypes already exist for this).
 
 ## 4. POS sale screen (already prototyped — match this behavior)
 
@@ -55,7 +68,7 @@ CONSUMED frees the location). Issued stacks get part-SKU barcode labels.
 - Product cards show: part/set badge, price, Ready stock (color-coded:
   red 0, amber <3), Uncut count for parts.
 - Cart: qty +/-, per-line and whole-sale discount, blocks qty above availability.
-- Set lines note "(deducts each component part)".
+- Set cards show Ready/Out from the set's own packed stock.
 - Payments: cash, card, bank transfer, split. Hold/park sale. Returns reverse
   stock against an invoice number.
 - On payment: atomic transaction → invoice + items + stock deductions + StockTxn SALE

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import type { SetDetailResult } from '@/lib/types/pos';
+import { setAvailability } from '@/lib/utils/setAvailability';
 
 export async function GET(
   _req: NextRequest,
@@ -49,15 +50,8 @@ export async function GET(
 
   if (!s) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const virtualQty =
-    s.components.length > 0
-      ? Math.min(
-          ...s.components.map((c) =>
-            c.qty > 0 ? Math.floor(c.part.finishedStock / c.qty) : Infinity,
-          ),
-        )
-      : 0;
-  const availability = s.packedStock + (isFinite(virtualQty) ? virtualQty : 0);
+  // A packed kit has its own stock; components are a contents list only.
+  const availability = setAvailability(s);
 
   // Sum of individual part prices × qty; null if any component has no price
   let componentSumPaise: number | null = 0;

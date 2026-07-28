@@ -66,7 +66,7 @@ type RawSetRow = {
   year: number;
   yearEnd: number | null;
   country: string | null;
-  availability: number; // packedStock + virtual, cast ::int
+  availability: number; // = packedStock (the set's own stock), cast ::int
   locationCode: string | null;
 };
 
@@ -134,7 +134,7 @@ function withSetCursor(base: Prisma.Sql, cursor: CursorData | null): Prisma.Sql 
  *
  * Three SQL queries (run in parallel):
  *   1. Parts  — JOIN BikeModel + LATERAL aggregate for uncutQty, keyset-paginated
- *   2. Sets   — JOIN BikeModel + LATERAL MIN for virtual availability, keyset-paginated
+ *   2. Sets   — JOIN BikeModel; availability is the set's own packedStock, keyset-paginated
  *   3. Count  — combined COUNT(*) for totalCount (cursor-independent)
  *
  * Returns { items, nextCursor, totalCount, query }.
@@ -214,7 +214,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       LIMIT ${fetchLimit}
     `,
 
-    // Query 2 — Sets with virtual availability via LATERAL MIN
+    // Query 2 — Sets. Availability is the set's OWN packedStock (see
+    // lib/utils/setAvailability.ts); component parts play no part in it.
     prisma.$queryRaw<RawSetRow[]>`
       SELECT
         s.id,
@@ -229,15 +230,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         bm.year::int         AS year,
         bm."yearEnd",
         bm.country,
-        (s."packedStock" + COALESCE(va.qty, 0))::int AS availability
+        s."packedStock"::int AS availability
       FROM "StickerSet" s
       JOIN "BikeModel" bm ON bm.id = s."bikeModelId"
-      LEFT JOIN LATERAL (
-        SELECT FLOOR(MIN(p."finishedStock"::float / NULLIF(sc.qty, 0)))::int AS qty
-        FROM   "SetComponent" sc
-        JOIN   "Part" p ON p.id = sc."partId"
-        WHERE  sc."setId" = s.id
-      ) va ON true
       WHERE ${sPage}
       ORDER BY s.name ASC, s.id ASC
       LIMIT ${fetchLimit}

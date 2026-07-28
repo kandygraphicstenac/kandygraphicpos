@@ -64,15 +64,21 @@ model StickerSet {
   bikeModelId Int
   bikeModel   BikeModel @relation(fields: [bikeModelId], references: [id])
   setPrice    Decimal   @db.Decimal(10, 2)
-  packedStock Int       @default(0) // pre-kitted sleeves; virtual availability is computed
+  /// Physically packed kits ready to sell. This is the set's OWN stock and the
+  /// sole source of its availability — it is NOT derived from component parts.
+  /// Changed only inside a $transaction that also writes a StockTxn row.
+  packedStock Int       @default(0)
   color        String? // e.g. "Red", "Chrome", "Holographic"
   imageUrl     String?
   active       Boolean    @default(true)
   locationCode String?
   location     Location?  @relation(fields: [locationCode], references: [code])
 
+  /// Reference/contents list only — what's inside the kit. Does NOT affect
+  /// availability, and selling a set never deducts these parts' finishedStock.
   components   SetComponent[]
   invoiceItems InvoiceItem[]
+  stockTxns    StockTxn[]
 }
 
 model SetComponent {
@@ -171,6 +177,11 @@ model StockTxn {
   type      TxnType
   partId    Int?
   part      Part?    @relation(fields: [partId], references: [id])
+  /// Set-level movement (sale/return/adjust of a packed kit). Exactly one of
+  /// partId / setId / sheetId identifies what moved. FK is
+  /// ON UPDATE CASCADE ON DELETE SET NULL — see 007_stocktxn_set_id.sql.
+  setId     Int?
+  set       StickerSet? @relation(fields: [setId], references: [id])
   sheetId   String?
   sheet     Sheet?   @relation(fields: [sheetId], references: [id])
   qty       Int // signed: + into finished stock, - out
@@ -180,6 +191,7 @@ model StockTxn {
   createdAt DateTime @default(now())
 
   @@index([partId, createdAt])
+  @@index([setId, createdAt])
   @@index([type, createdAt])
 }
 

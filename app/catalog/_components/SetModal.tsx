@@ -276,7 +276,11 @@ export function SetModal({ existing, onClose }: Props) {
 
           {/* Component picker */}
           <div className="space-y-2">
-            <label className="text-[12px] font-medium text-text-2">Components</label>
+            <label className="text-[12px] font-medium text-text-2">Kit contents</label>
+            <p className="text-[11px] text-text-3 -mt-0.5">
+              For reference only — a kit has its own stock, so this list does not
+              affect availability and selling a kit never deducts these parts.
+            </p>
 
             {components.length > 0 && (
               <div className="space-y-1.5">

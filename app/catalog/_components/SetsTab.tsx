@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { printLabels } from '@/lib/utils/printLabels';
 import { SetModal } from './SetModal';
+import { AdjustStockModal } from './AdjustStockModal';
 import { yearLabel } from '@/lib/utils/modelLabel';
+import { setAvailability } from '@/lib/utils/setAvailability';
 
 type Part = { id: number; sku: string; name: string; price: string | null; finishedStock: number };
 type BikeModel = { id: number; brand: string; model: string; year: number; yearEnd: number | null; country: string | null };
@@ -23,17 +25,14 @@ interface Props { isOwner: boolean }
 
 const LKR = new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' });
 
-function setAvailability(set: StickerSet): number {
-  if (set.components.length === 0) return set.packedStock;
-  const fromComponents = Math.min(
-    ...set.components.map((c) => Math.floor(c.part.finishedStock / c.qty)),
-  );
-  return set.packedStock + fromComponents;
-}
-
 export function SetsTab({ isOwner }: Props) {
   const qc = useQueryClient();
-  const [modal, setModal] = useState<{ type: 'create' } | { type: 'edit'; set: StickerSet } | null>(null);
+  const [modal, setModal] = useState<
+    | { type: 'create' }
+    | { type: 'edit'; set: StickerSet }
+    | { type: 'adjust'; set: StickerSet }
+    | null
+  >(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [modelId, setModelId] = useState('');
 
@@ -141,8 +140,8 @@ export function SetsTab({ isOwner }: Props) {
                 <th className="text-left px-3 py-3 font-medium hidden xl:table-cell">Color</th>
                 <th className="text-left px-3 py-3 font-medium hidden md:table-cell">Model</th>
                 <th className="text-right px-3 py-3 font-medium">Set Price</th>
-                <th className="text-right px-3 py-3 font-medium hidden sm:table-cell">Parts</th>
-                <th className="text-right px-3 py-3 font-medium">Avail.</th>
+                <th className="text-right px-3 py-3 font-medium hidden sm:table-cell">Contents</th>
+                <th className="text-right px-3 py-3 font-medium">Stock</th>
                 <th className="text-left px-3 py-3 font-medium hidden lg:table-cell">Location</th>
                 <th className="px-3 py-3 font-medium text-center hidden sm:table-cell">Active</th>
                 <th className="px-4 py-3" />
@@ -207,6 +206,15 @@ export function SetsTab({ isOwner }: Props) {
                         {isOwner && (
                           <button
                             type="button"
+                            onClick={() => setModal({ type: 'adjust', set: s })}
+                            className="text-[12px] text-text-2 hover:text-text transition-colors"
+                          >
+                            Adjust
+                          </button>
+                        )}
+                        {isOwner && (
+                          <button
+                            type="button"
                             onClick={() => setModal({ type: 'edit', set: s })}
                             className="text-[12px] text-text-2 hover:text-text transition-colors"
                             title={s.hasInvoices && s.active ? 'Has sales history — deactivate via Edit' : undefined}
@@ -242,6 +250,19 @@ export function SetsTab({ isOwner }: Props) {
 
       {modal?.type === 'create' && <SetModal onClose={() => setModal(null)} />}
       {modal?.type === 'edit' && <SetModal existing={modal.set} onClose={() => setModal(null)} />}
+      {modal?.type === 'adjust' && (
+        <AdjustStockModal
+          kind="set"
+          item={{
+            id: modal.set.id,
+            sku: modal.set.sku,
+            name: modal.set.name,
+            stock: modal.set.packedStock,
+            locationCode: modal.set.locationCode,
+          }}
+          onClose={() => setModal(null)}
+        />
+      )}
     </div>
   );
 }

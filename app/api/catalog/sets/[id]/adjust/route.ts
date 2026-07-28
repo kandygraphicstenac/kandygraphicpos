@@ -4,9 +4,11 @@ import { AdjustBodySchema } from '@/lib/validators/catalog';
 import { adjustStock, StockAdjustError } from '@/lib/services/stockAdjustService';
 
 /**
- * POST /api/catalog/parts/[id]/adjust
+ * POST /api/catalog/sets/[id]/adjust
  * Body: { delta: number, reason: 'INITIAL'|'RECOUNT'|'DAMAGE'|'OTHER', note?: string }
- * Atomically updates finishedStock and writes a StockTxn. OWNER only.
+ *
+ * Adjusts a set's own packedStock (never its component parts) and writes a
+ * matching StockTxn in the same transaction. OWNER only.
  */
 export async function POST(
   request: NextRequest,
@@ -34,7 +36,7 @@ export async function POST(
 
   try {
     const result = await adjustStock({
-      target: 'part',
+      target: 'set',
       id: numId,
       delta,
       reason,
@@ -42,10 +44,10 @@ export async function POST(
       locationCode,
       userId: user.id,
     });
-    return NextResponse.json({ id: result.id, finishedStock: result.stock });
+    return NextResponse.json({ id: result.id, packedStock: result.stock });
   } catch (err: unknown) {
     if (err instanceof StockAdjustError) {
-      if (err.code === 'NOT_FOUND') return NextResponse.json({ error: 'Part not found' }, { status: 404 });
+      if (err.code === 'NOT_FOUND') return NextResponse.json({ error: err.message }, { status: 404 });
       return NextResponse.json({ error: err.message }, { status: 422 });
     }
     throw err;

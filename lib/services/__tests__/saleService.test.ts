@@ -18,8 +18,11 @@ type MockPart = {
 type MockSet = {
   id: number;
   sku: string;
+  name: string;
+  /** The set's OWN stock — the sole source of its availability. */
   packedStock: number;
   active: boolean;
+  /** Reference/contents list only; never deducted on sale. */
   components: Array<{ setId: number; partId: number; qty: number }>;
 };
 
@@ -70,6 +73,7 @@ function buildMockDb(parts: MockPart[], sets: MockSet[] = []) {
     },
     stickerSet: {
       findMany: vi.fn().mockResolvedValue(sets),
+      update: vi.fn().mockResolvedValue({}),
     },
     invoice: {
       create: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
@@ -374,11 +378,13 @@ describe('completeSale — discount authorization', () => {
   });
 });
 
-describe('completeSale — virtual set sales', () => {
+describe('completeSale — set sales use the set\'s own stock', () => {
+  /** A kit with 6 packed sleeves on the shelf, listing 2 parts as its contents. */
   const mockSet: MockSet = {
     id: 1,
     sku: 'CB125-FULL',
-    packedStock: 0,
+    name: 'CB125 full graphics kit',
+    packedStock: 6,
     active: true,
     components: [
       { setId: 1, partId: 10, qty: 1 },
@@ -386,7 +392,7 @@ describe('completeSale — virtual set sales', () => {
     ],
   };
 
-  it('deducts each component part by qty × line qty', async () => {
+  it('decrements the set\'s own stock and leaves every component part untouched', async () => {
     const { mockDb, mockTx } = buildMockDb(
       [
         { id: 10, finishedStock: 5, name: 'Tank L', sku: 'CB125-TL' },
@@ -395,29 +401,49 @@ describe('completeSale — virtual set sales', () => {
       [mockSet],
     );
 
-    // Sell 2 sets — expects partId 10 deducted by 1×2=2 and partId 11 by 2×2=4
     await completeSale(
       { ...BASE_INPUT, lines: [{ type: 'set', setId: 1, qty: 2, unitPrice: D('800.00') }] },
       mockDb,
     );
 
-    expect(mockTx.part.update).toHaveBeenCalledWith({
-      where: { id: 10 },
-      data: { finishedStock: { decrement: 2 } },
+    expect(mockTx.stickerSet.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { packedStock: { decrement: 2 } },
     });
-    expect(mockTx.part.update).toHaveBeenCalledWith({
-      where: { id: 11 },
-      data: { finishedStock: { decrement: 4 } },
-    });
+    // The whole point: loose part stock is a separate pool.
+    expect(mockTx.part.update).not.toHaveBeenCalled();
   });
 
-  it('writes one StockTxn row per component part', async () => {
+  it('writes a single SALE StockTxn carrying setId, so set stock stays reconstructable', async () => {
+    const { mockDb, mockTx } = buildMockDb(
+      [{ id: 10, finishedStock: 5, name: 'Tank L', sku: 'CB125-TL' }],
+      [mockSet],
+    );
+
+    await completeSale(
+      { ...BASE_INPUT, lines: [{ type: 'set', setId: 1, qty: 3, unitPrice: D('800.00') }] },
+      mockDb,
+    );
+
+    expect(mockTx.stockTxn.create).toHaveBeenCalledTimes(1);
+    expect(mockTx.stockTxn.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ type: 'SALE', setId: 1, qty: -3 }),
+      }),
+    );
+    // No part-level txn was written for a set sale.
+    expect(mockTx.stockTxn.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ partId: 10 }) }),
+    );
+  });
+
+  it('is sellable even when every component part is out of stock', async () => {
     const { mockDb, mockTx } = buildMockDb(
       [
-        { id: 10, finishedStock: 5, name: 'Tank L', sku: 'CB125-TL' },
-        { id: 11, finishedStock: 5, name: 'Tank R', sku: 'CB125-TR' },
+        { id: 10, finishedStock: 0, name: 'Tank L', sku: 'CB125-TL' },
+        { id: 11, finishedStock: 0, name: 'Tank R', sku: 'CB125-TR' },
       ],
-      [mockSet],
+      [mockSet], // packedStock 6
     );
 
     await completeSale(
@@ -425,41 +451,58 @@ describe('completeSale — virtual set sales', () => {
       mockDb,
     );
 
-    // One txn per component part
-    expect(mockTx.stockTxn.create).toHaveBeenCalledTimes(2);
-    expect(mockTx.stockTxn.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ type: 'SALE', partId: 10, qty: -1 }) }),
-    );
-    expect(mockTx.stockTxn.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ type: 'SALE', partId: 11, qty: -2 }) }),
-    );
+    expect(mockTx.stickerSet.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { packedStock: { decrement: 1 } },
+    });
   });
 
-  it('throws SaleError when a component part has insufficient stock', async () => {
-    const { mockDb } = buildMockDb(
-      [
-        { id: 10, finishedStock: 5, name: 'Tank L', sku: 'CB125-TL' },
-        { id: 11, finishedStock: 1, name: 'Tank R', sku: 'CB125-TR' }, // only 1 available
-      ],
-      [mockSet],
+  it('rejects a set line above the set\'s own stock before any write', async () => {
+    const { mockDb, mockTx } = buildMockDb(
+      [{ id: 10, finishedStock: 999, name: 'Tank L', sku: 'CB125-TL' }],
+      [{ ...mockSet, packedStock: 2 }],
     );
 
-    // Selling 1 set needs partId 11 qty 2 → should fail
+    // Plenty of component stock, but only 2 packed kits exist.
     await expect(
       completeSale(
-        { ...BASE_INPUT, lines: [{ type: 'set', setId: 1, qty: 1, unitPrice: D('800.00') }] },
+        { ...BASE_INPUT, lines: [{ type: 'set', setId: 1, qty: 3, unitPrice: D('800.00') }] },
         mockDb,
       ),
     ).rejects.toThrow(SaleError);
+
+    expect(mockTx.stickerSet.update).not.toHaveBeenCalled();
+    expect(mockTx.part.update).not.toHaveBeenCalled();
+    expect(mockTx.invoice.create).not.toHaveBeenCalled();
+    expect(mockTx.stockTxn.create).not.toHaveBeenCalled();
   });
 
-  it('aggregates demand correctly when a part appears in both a part line and a set component', async () => {
-    // partId 10 needed: 3 (direct) + 1 (via set) = 4, but only 4 available → exact boundary
+  it('sums the same set across two lines before checking stock', async () => {
     const { mockDb, mockTx } = buildMockDb(
-      [
-        { id: 10, finishedStock: 4, name: 'Tank L', sku: 'CB125-TL' },
-        { id: 11, finishedStock: 5, name: 'Tank R', sku: 'CB125-TR' },
-      ],
+      [{ id: 10, finishedStock: 999, name: 'Tank L', sku: 'CB125-TL' }],
+      [{ ...mockSet, packedStock: 3 }],
+    );
+
+    // 2 + 2 = 4 needed against 3 in stock → must fail, not pass line-by-line.
+    await expect(
+      completeSale(
+        {
+          ...BASE_INPUT,
+          lines: [
+            { type: 'set', setId: 1, qty: 2, unitPrice: D('800.00') },
+            { type: 'set', setId: 1, qty: 2, unitPrice: D('800.00') },
+          ],
+        },
+        mockDb,
+      ),
+    ).rejects.toThrow(SaleError);
+
+    expect(mockTx.stickerSet.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps part and set pools independent when both are on one invoice', async () => {
+    const { mockDb, mockTx } = buildMockDb(
+      [{ id: 10, finishedStock: 4, name: 'Tank L', sku: 'CB125-TL' }],
       [mockSet],
     );
 
@@ -474,35 +517,15 @@ describe('completeSale — virtual set sales', () => {
       mockDb,
     );
 
+    // Part line deducts exactly its own qty — the set no longer adds demand to it.
     expect(mockTx.part.update).toHaveBeenCalledWith({
       where: { id: 10 },
-      data: { finishedStock: { decrement: 4 } }, // 3 + 1
+      data: { finishedStock: { decrement: 3 } },
     });
-  });
-
-  it('throws SaleError when aggregated demand across part line + set exceeds stock', async () => {
-    // partId 10: stock 4, direct 3 + set 1×2 = 5 needed → oversell
-    const setWith2 = { ...mockSet, components: [{ setId: 1, partId: 10, qty: 2 }, { setId: 1, partId: 11, qty: 1 }] };
-    const { mockDb } = buildMockDb(
-      [
-        { id: 10, finishedStock: 4, name: 'Tank L', sku: 'CB125-TL' },
-        { id: 11, finishedStock: 5, name: 'Tank R', sku: 'CB125-TR' },
-      ],
-      [setWith2],
-    );
-
-    await expect(
-      completeSale(
-        {
-          ...BASE_INPUT,
-          lines: [
-            { type: 'part', partId: 10, qty: 3, unitPrice: D('350.00') },
-            { type: 'set', setId: 1, qty: 1, unitPrice: D('800.00') },
-          ],
-        },
-        mockDb,
-      ),
-    ).rejects.toThrow(SaleError);
+    expect(mockTx.stickerSet.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { packedStock: { decrement: 1 } },
+    });
   });
 });
 

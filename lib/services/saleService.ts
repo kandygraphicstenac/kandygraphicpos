@@ -2,6 +2,7 @@ import { Company, Customer, Invoice, InvoiceStatus, OrderType, PaymentMethod, Pr
 import { prisma as defaultPrisma } from '../db';
 import { consumeAuthorizationGrant, AuthorizationError } from './authorizationService';
 import { getDiscountApprovalThresholdPct } from './settingsService';
+import { setAvailability } from '../utils/setAvailability';
 
 export class SaleError extends Error {
   constructor(message: string) {
@@ -89,7 +90,10 @@ async function generateInvoiceId(
  * Invoice + InvoiceItem rows, deducts finishedStock, and writes SALE StockTxn
  * audit rows. Returns the invoice with company details for receipt rendering.
  *
- * Virtual set sales deduct each component part per SetComponent.qty × line qty.
+ * Parts and sets are independent stock pools: a part line deducts
+ * Part.finishedStock, a set line deducts that set's own StickerSet.packedStock.
+ * Selling a set never touches its component parts — SetComponent is a
+ * reference/contents list only.
  * Throws SaleError on insufficient stock or invalid company (never oversells).
  */
 export async function completeSale(
@@ -113,8 +117,24 @@ export async function completeSale(
     const partLines = input.lines.filter((l): l is PartCartLine => l.type === 'part');
     const setLines = input.lines.filter((l): l is SetCartLine => l.type === 'set');
 
-    // ── 1. Fetch sets with their components ──────────────────────────────────
-    const setIds = setLines.map((l) => l.setId);
+    // ── 1. Pessimistic row-locks (SELECT … FOR UPDATE) ───────────────────────
+    // Only rows we actually mutate are locked. Part lines lock their Part; set
+    // lines lock their StickerSet. A set's component parts are NOT locked —
+    // selling a packed kit never touches them (they're a contents list only).
+    // Sets are locked in ascending id order to keep lock ordering deterministic.
+    const lockPartIds = new Set(partLines.map((l) => l.partId));
+    const setIds = [...new Set(setLines.map((l) => l.setId))].sort((a, b) => a - b);
+
+    for (const partId of lockPartIds) {
+      await tx.$executeRaw`SELECT id FROM "Part" WHERE id = ${partId} FOR UPDATE`;
+    }
+    for (const setId of setIds) {
+      await tx.$executeRaw`SELECT id FROM "StickerSet" WHERE id = ${setId} FOR UPDATE`;
+    }
+
+    // ── 2. Re-read locked sets ───────────────────────────────────────────────
+    // Components are still loaded, but only to snapshot the set's unitCost —
+    // they play no part in availability or stock deduction.
     const sets =
       setIds.length > 0
         ? await tx.stickerSet.findMany({
@@ -129,21 +149,15 @@ export async function completeSale(
       if (!setsById.has(line.setId)) throw new SaleError(`Set ${line.setId} not found`);
     }
 
-    // ── 2. Collect every part ID we will touch ───────────────────────────────
-    const allPartIds = new Set<number>();
-    for (const l of partLines) allPartIds.add(l.partId);
-    for (const l of setLines) {
-      for (const comp of setsById.get(l.setId)!.components) allPartIds.add(comp.partId);
+    // ── 3. Read parts: the locked ones we deduct, plus set component parts
+    //       (read-only — needed solely for the set unitCost snapshot) ─────────
+    const componentPartIds = new Set<number>();
+    for (const s of sets) {
+      for (const comp of s.components) componentPartIds.add(comp.partId);
     }
 
-    // ── 3. Pessimistic row-locks (SELECT … FOR UPDATE) ───────────────────────
-    for (const partId of allPartIds) {
-      await tx.$executeRaw`SELECT id FROM "Part" WHERE id = ${partId} FOR UPDATE`;
-    }
-
-    // ── 4. Re-read locked part stocks ────────────────────────────────────────
     const parts = await tx.part.findMany({
-      where: { id: { in: Array.from(allPartIds) } },
+      where: { id: { in: [...new Set([...lockPartIds, ...componentPartIds])] } },
     });
     const partsById = new Map(parts.map((p) => [p.id, p]));
 
@@ -155,18 +169,19 @@ export async function completeSale(
       }
     }
 
-    // ── 5. Accumulate net deductions per part ────────────────────────────────
+    // ── 5. Accumulate net deductions ─────────────────────────────────────────
+    // Two independent stock pools: part lines deduct Part.finishedStock, set
+    // lines deduct StickerSet.packedStock. Selling one never affects the other.
+    // Quantities are summed per id so the same product on two lines is checked
+    // against its combined total, not line-by-line.
     const netDeductions = new Map<number, number>();
-
     for (const l of partLines) {
       netDeductions.set(l.partId, (netDeductions.get(l.partId) ?? 0) + l.qty);
     }
 
+    const netSetDeductions = new Map<number, number>();
     for (const l of setLines) {
-      for (const comp of setsById.get(l.setId)!.components) {
-        const needed = comp.qty * l.qty;
-        netDeductions.set(comp.partId, (netDeductions.get(comp.partId) ?? 0) + needed);
-      }
+      netSetDeductions.set(l.setId, (netSetDeductions.get(l.setId) ?? 0) + l.qty);
     }
 
     // ── 6. Oversell validation ───────────────────────────────────────────────
@@ -177,6 +192,14 @@ export async function completeSale(
         throw new SaleError(
           `Not enough stock for ${part.name} — ${part.finishedStock} available`,
         );
+      }
+    }
+
+    for (const [setId, needed] of netSetDeductions) {
+      const set = setsById.get(setId)!;
+      const available = setAvailability(set);
+      if (available < needed) {
+        throw new SaleError(`Not enough stock for ${set.name} — ${available} available`);
       }
     }
 
@@ -330,6 +353,24 @@ export async function completeSale(
           type: TxnType.SALE,
           partId,
           qty: -deduction, // negative = out of finished stock
+          reference: invoiceId,
+          userId: input.userId,
+        },
+      });
+    }
+
+    // Sets deduct their own packed stock — component parts are untouched.
+    for (const [setId, deduction] of netSetDeductions) {
+      await tx.stickerSet.update({
+        where: { id: setId },
+        data: { packedStock: { decrement: deduction } },
+      });
+
+      await tx.stockTxn.create({
+        data: {
+          type: TxnType.SALE,
+          setId,
+          qty: -deduction, // negative = out of packed set stock
           reference: invoiceId,
           userId: input.userId,
         },

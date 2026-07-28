@@ -19,9 +19,23 @@ Full-cloud architecture. Read SPEC.md for complete business logic before buildin
    a matching `StockTxn` row. Stock must always be reconstructable from the txn log.
 2. **Money is `Decimal`**, never `number` floats. Use Prisma Decimal; format with
    `Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' })` in the UI.
-3. **Selling a virtual set deducts each component part's `finishedStock`** per
-   `SetComponent.qty`, all in one transaction. Set availability =
-   `min(component.finishedStock / componentQty)` plus any `packedStock`.
+3. **A StickerSet has its OWN stock — `packedStock` — and parts and sets are
+   independent stock pools.** Everything is printed on sheets and held as uncut
+   stock; from there the shop packs EITHER loose parts OR a complete kit, so a
+   packed kit is a physical item with its own count, not something assembled
+   from loose selling stock at sale time. Therefore:
+   - Set availability = `StickerSet.packedStock`, never derived from components.
+     `lib/utils/setAvailability.ts` is the single source of truth — the POS gate,
+     the catalog list, and the `saleService` guard all call it. Never re-implement
+     the formula inline (including in the POS raw SQL).
+   - Selling a set decrements `packedStock` and writes a SALE `StockTxn` carrying
+     `setId`; it **never** touches any component part's `finishedStock`.
+     Returns mirror this against `packedStock`.
+   - `SetComponent` rows are a **reference/contents list only** — they say what's
+     inside the kit for staff, and are read at sale time solely to snapshot
+     `InvoiceItem.unitCost`. They do not affect stock or availability.
+   - `StockTxn` identifies what moved via exactly one of `partId` / `setId` /
+     `sheetId`.
 4. **Partial cutting:** issuing from a sheet decrements `SheetContent.remainingQty`
    and increments `Part.finishedStock`. When all remainingQty on a sheet hit 0,
    set sheet status to CONSUMED and clear its location. If some remain, status PARTIAL.
@@ -151,7 +165,8 @@ above).
 ## Testing
 
 - Vitest. Every service in `lib/services/` gets unit tests covering: overselling blocked,
-  set sale deducts all components, partial cut math, sheet auto-CONSUMED, txn log written.
+  set sale deducts the set's own `packedStock` and leaves component parts untouched,
+  partial cut math, sheet auto-CONSUMED, txn log written.
 
 ## Migration pattern
 

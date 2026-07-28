@@ -41,8 +41,9 @@ export type SetResult = {
   imageUrl: string | null;
   packedStock: number;
   /**
-   * packedStock + min over components of floor(finishedStock / componentQty).
-   * Represents the true sellable quantity when sold as a virtual set.
+   * The set's own sellable quantity — equals packedStock. A packed kit is a
+   * physical item with its own count and is NOT assembled from component part
+   * stock at sale time. See lib/utils/setAvailability.ts.
    */
   availability: number;
   exactMatch: boolean;

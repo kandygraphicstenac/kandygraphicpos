@@ -398,7 +398,17 @@ export function PartsTab({ isOwner }: Props) {
         <PartModal existing={modal.part} isOwner={isOwner} onClose={() => setModal(null)} />
       )}
       {modal?.type === 'adjust' && (
-        <AdjustStockModal part={modal.part} onClose={() => setModal(null)} />
+        <AdjustStockModal
+          kind="part"
+          item={{
+            id: modal.part.id,
+            sku: modal.part.sku,
+            name: modal.part.name,
+            stock: modal.part.finishedStock,
+            locationCode: modal.part.locationCode,
+          }}
+          onClose={() => setModal(null)}
+        />
       )}
     </div>
   );

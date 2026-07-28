@@ -30,7 +30,8 @@ export type ProcessReturnResult = {
 /**
  * Atomically processes a full or partial return:
  *  - Validates quantities against sold minus already-returned
- *  - Restores finishedStock for each part (set lines restore all components)
+ *  - Restores Part.finishedStock for part lines and StickerSet.packedStock for
+ *    set lines (set lines never restore component parts — see saleService)
  *  - Writes RETURN StockTxn rows (positive qty = back into stock)
  *  - Increments InvoiceItem.returnedQty
  *  - Sets status REFUNDED (all items fully returned) or PARTIAL_REFUND
@@ -58,16 +59,12 @@ export async function processReturn(
       throw err;
     }
 
-    // ── 1. Fetch invoice with items and set components ──────────────────────
+    // ── 1. Fetch invoice with its items ─────────────────────────────────────
+    // Set components are deliberately NOT joined: a set line restores the set's
+    // own packedStock, so its contents list is irrelevant here.
     const invoice = await tx.invoice.findUnique({
       where: { id: input.invoiceId },
-      include: {
-        items: {
-          include: {
-            set: { include: { components: true } },
-          },
-        },
-      },
+      include: { items: true },
     });
 
     if (!invoice) throw new ReturnError('Invoice not found');
@@ -95,19 +92,20 @@ export async function processReturn(
       }
     }
 
-    // ── 3. Collect net restorations per part ────────────────────────────────
-    const netRestorations = new Map<number, number>(); // partId → qty to restore
+    // ── 3. Collect net restorations ─────────────────────────────────────────
+    // Mirrors the sale path: a part line restores Part.finishedStock, a set
+    // line restores that set's own StickerSet.packedStock. Returning a kit does
+    // NOT put its component parts back — they were never deducted.
+    const netRestorations = new Map<number, number>();    // partId → qty
+    const netSetRestorations = new Map<number, number>(); // setId  → qty
 
     for (const line of input.lines) {
       const item = itemsById.get(line.itemId)!;
 
       if (item.partId !== null) {
         netRestorations.set(item.partId, (netRestorations.get(item.partId) ?? 0) + line.qty);
-      } else if (item.setId !== null && item.set) {
-        for (const comp of item.set.components) {
-          const restoration = comp.qty * line.qty;
-          netRestorations.set(comp.partId, (netRestorations.get(comp.partId) ?? 0) + restoration);
-        }
+      } else if (item.setId !== null) {
+        netSetRestorations.set(item.setId, (netSetRestorations.get(item.setId) ?? 0) + line.qty);
       }
     }
 
@@ -115,8 +113,11 @@ export async function processReturn(
     for (const partId of netRestorations.keys()) {
       await tx.$executeRaw`SELECT id FROM "Part" WHERE id = ${partId} FOR UPDATE`;
     }
+    for (const setId of [...netSetRestorations.keys()].sort((a, b) => a - b)) {
+      await tx.$executeRaw`SELECT id FROM "StickerSet" WHERE id = ${setId} FOR UPDATE`;
+    }
 
-    // ── 5. Restore stock + write RETURN StockTxn per part ──────────────────
+    // ── 5. Restore stock + write RETURN StockTxn rows ──────────────────────
     for (const [partId, qty] of netRestorations) {
       await tx.part.update({
         where: { id: partId },
@@ -127,6 +128,22 @@ export async function processReturn(
           type: TxnType.RETURN,
           partId,
           qty, // positive = returned back into finished stock
+          reference: input.invoiceId,
+          userId: input.userId,
+        },
+      });
+    }
+
+    for (const [setId, qty] of netSetRestorations) {
+      await tx.stickerSet.update({
+        where: { id: setId },
+        data: { packedStock: { increment: qty } },
+      });
+      await tx.stockTxn.create({
+        data: {
+          type: TxnType.RETURN,
+          setId,
+          qty, // positive = returned back into packed set stock
           reference: input.invoiceId,
           userId: input.userId,
         },

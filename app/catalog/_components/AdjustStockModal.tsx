@@ -7,7 +7,12 @@ import { LocationPicker } from './LocationPicker';
 type Reason = 'INITIAL' | 'RECOUNT' | 'DAMAGE' | 'OTHER';
 
 interface Props {
-  part: { id: number; sku: string; name: string; finishedStock: number; locationCode: string | null };
+  /**
+   * Which stock pool is being adjusted. Parts and sets are independent pools:
+   * 'part' adjusts Part.finishedStock, 'set' adjusts StickerSet.packedStock.
+   */
+  kind: 'part' | 'set';
+  item: { id: number; sku: string; name: string; stock: number; locationCode: string | null };
   onClose: () => void;
 }
 
@@ -18,23 +23,25 @@ const REASONS: { value: Reason; label: string }[] = [
   { value: 'OTHER', label: 'Other' },
 ];
 
-export function AdjustStockModal({ part, onClose }: Props) {
+export function AdjustStockModal({ kind, item, onClose }: Props) {
   const qc = useQueryClient();
   const [delta, setDelta] = useState('');
   const [reason, setReason] = useState<Reason>('RECOUNT');
   const [note, setNote] = useState('');
-  const [locationCode, setLocationCode] = useState<string | null>(part.locationCode);
+  const [locationCode, setLocationCode] = useState<string | null>(item.locationCode);
   const [err, setErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   const deltaNum = parseInt(delta, 10);
-  const preview = isNaN(deltaNum) ? null : part.finishedStock + deltaNum;
+  const preview = isNaN(deltaNum) ? null : item.stock + deltaNum;
+
+  const resource = kind === 'part' ? 'parts' : 'sets';
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/catalog/parts/${part.id}/adjust`, {
+      const res = await fetch(`/api/catalog/${resource}/${item.id}/adjust`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -50,7 +57,8 @@ export function AdjustStockModal({ part, onClose }: Props) {
       }
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['parts'] });
+      void qc.invalidateQueries({ queryKey: [resource] });
+      void qc.invalidateQueries({ queryKey: ['pos-search'] });
       onClose();
     },
     onError: (e: Error) => setErr(e.message),
@@ -70,7 +78,7 @@ export function AdjustStockModal({ part, onClose }: Props) {
         <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-border">
           <div>
             <h2 className="text-[15px] font-semibold">Adjust Stock</h2>
-            <p className="text-[12px] text-text-3 mt-0.5">{part.sku} — {part.name}</p>
+            <p className="text-[12px] text-text-3 mt-0.5">{item.sku} — {item.name}</p>
           </div>
           <button type="button" onClick={onClose} className="text-text-3 hover:text-text transition-colors">
             <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -83,7 +91,7 @@ export function AdjustStockModal({ part, onClose }: Props) {
           <div className="flex items-center gap-4 px-4 py-3 bg-bg rounded-xl border border-border">
             <div>
               <p className="text-[11px] text-text-3 uppercase tracking-wide">Current stock</p>
-              <p className="text-[24px] font-semibold tabular-nums">{part.finishedStock}</p>
+              <p className="text-[24px] font-semibold tabular-nums">{item.stock}</p>
             </div>
             {preview !== null && (
               <>
