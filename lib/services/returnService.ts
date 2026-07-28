@@ -1,5 +1,5 @@
 import { Invoice, InvoiceStatus, Prisma, PrismaClient, TxnType, Return as ReturnRecord } from '@prisma/client';
-import { prisma as defaultPrisma } from '../db';
+import { prisma as defaultPrisma, TXN_OPTIONS } from '../db';
 import { consumeAuthorizationGrant, AuthorizationError } from './authorizationService';
 
 export class ReturnError extends Error {
@@ -198,5 +198,5 @@ export async function processReturn(
     }
 
     return { invoice: updatedInvoice, return: returnRecord };
-  });
+  }, TXN_OPTIONS);
 }

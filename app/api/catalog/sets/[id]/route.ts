@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { prisma, TXN_OPTIONS } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { SetUpdateSchema } from '@/lib/validators/catalog';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -56,7 +56,7 @@ export async function PATCH(
           bikeModel: { select: { id: true, brand: true, model: true, year: true, yearEnd: true } },
         },
       });
-    });
+    }, TXN_OPTIONS);
 
     return NextResponse.json({
       ...updated,

@@ -230,7 +230,7 @@ async function main() {
             },
           });
         }
-      });
+      }, { maxWait: 10_000, timeout: 20_000 });
     }
 
     if (m.set) {

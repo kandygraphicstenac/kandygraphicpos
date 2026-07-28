@@ -1,5 +1,5 @@
 import { Customer, CustomerLedger, Prisma, PrismaClient } from '@prisma/client';
-import { prisma as defaultPrisma } from '../db';
+import { prisma as defaultPrisma, TXN_OPTIONS } from '../db';
 import { consumeAuthorizationGrant, AuthorizationError } from './authorizationService';
 
 export class CreditError extends Error {
@@ -88,5 +88,5 @@ export async function recordPayment(
     });
 
     return { customer: updatedCustomer, ledgerEntry };
-  });
+  }, TXN_OPTIONS);
 }

@@ -1,5 +1,5 @@
 import { Company, Customer, Invoice, InvoiceStatus, OrderType, PaymentMethod, Prisma, PrismaClient, TxnType } from '@prisma/client';
-import { prisma as defaultPrisma } from '../db';
+import { prisma as defaultPrisma, TXN_OPTIONS } from '../db';
 import { consumeAuthorizationGrant, AuthorizationError } from './authorizationService';
 import { getDiscountApprovalThresholdPct } from './settingsService';
 import { setAvailability } from '../utils/setAvailability';
@@ -398,5 +398,5 @@ export async function completeSale(
 
     // Return invoice + company snapshot (used by route to render confirmation/receipt)
     return { ...invoice, company };
-  });
+  }, TXN_OPTIONS);
 }

@@ -1,5 +1,5 @@
 import { PrismaClient, TxnType } from '@prisma/client';
-import { prisma as defaultPrisma } from '../db';
+import { prisma as defaultPrisma, TXN_OPTIONS } from '../db';
 
 /**
  * Manual stock adjustment for either stock pool.
@@ -85,5 +85,5 @@ export async function adjustStock(
       data: { type: txnType, setId: id, qty: delta, reference: note ?? reason, userId },
     });
     return { id: updated.id, stock: updated.packedStock };
-  });
+  }, TXN_OPTIONS);
 }
