@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
+import { ASSIGNABLE_ROLES } from '@/lib/permissions';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 const PatchSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
-  role: z.enum(['OWNER', 'CASHIER', 'CUTTER']).optional(),
+  role: z.enum(ASSIGNABLE_ROLES).optional(),
   active: z.boolean().optional(),
 });
 

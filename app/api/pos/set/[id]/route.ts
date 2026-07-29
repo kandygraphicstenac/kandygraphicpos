@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import type { SetDetailResult } from '@/lib/types/pos';
 import { setAvailability } from '@/lib/utils/setAvailability';
+import { canUsePos } from '@/lib/permissions';
 
 export async function GET(
   _req: NextRequest,
@@ -10,7 +11,7 @@ export async function GET(
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canUsePos(user.role)) return forbiddenResponse();
 
   const { id } = await params;
   const setId = parseInt(id, 10);

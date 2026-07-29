@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { HoldSaleBodySchema } from '@/lib/validators/pos';
+import { canUsePos } from '@/lib/permissions';
 
 const MAX_HELD = 5;
 
@@ -10,7 +11,7 @@ const MAX_HELD = 5;
 export async function GET(): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canUsePos(user.role)) return forbiddenResponse();
 
   const rows = await prisma.heldSale.findMany({
     where: { userId: user.id },
@@ -28,7 +29,7 @@ export async function GET(): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canUsePos(user.role)) return forbiddenResponse();
 
   const body = await request.json().catch(() => null);
   const parsed = HoldSaleBodySchema.safeParse(body);

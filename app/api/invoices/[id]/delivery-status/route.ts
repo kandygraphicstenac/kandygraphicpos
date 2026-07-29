@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
+import { canViewInvoices } from '@/lib/permissions';
 import { DELIVERY_STATUS_FLOW } from '@/lib/constants/delivery';
 
 const BodySchema = z.object({ status: z.enum(DELIVERY_STATUS_FLOW) });
@@ -21,7 +22,7 @@ export async function PATCH(
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canViewInvoices(user.role)) return forbiddenResponse();
 
   const { id } = await params;
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { getDiscountApprovalThresholdPct, setDiscountApprovalThresholdPct } from '@/lib/services/settingsService';
+import { canUsePos, canManageSettings } from '@/lib/permissions';
 
 /**
  * GET /api/settings/discount-threshold
@@ -12,7 +13,8 @@ import { getDiscountApprovalThresholdPct, setDiscountApprovalThresholdPct } from
 export async function GET(): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  // Read by the POS to decide when a discount needs manager approval.
+  if (!canUsePos(user.role)) return forbiddenResponse();
 
   const thresholdPct = await getDiscountApprovalThresholdPct();
   return NextResponse.json({ thresholdPct });
@@ -27,7 +29,7 @@ const PutBodySchema = z.object({ thresholdPct: z.number().min(0).max(100) });
 export async function PUT(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canManageSettings(user.role)) return forbiddenResponse();
 
   let body: unknown;
   try {

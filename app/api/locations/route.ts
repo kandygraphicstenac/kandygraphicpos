@@ -1,36 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { getCurrentUser, unauthorizedResponse } from '@/lib/auth';
+import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { LocationCreateSchema } from '@/lib/validators/catalog';
+import { canEditCatalog, canReadLocations } from '@/lib/permissions';
 import type { LocationRecord } from '@/lib/types/location';
 
 /**
  * GET /api/locations
- * Returns all locations (active and inactive) ordered by code.
- * Any authenticated user can read — staff need to see locations in pickers.
+ * Query params: q (code/description), page (1-based), pageSize (default 25)
+ *
+ * Paginated list for the Locations tab. LocationPicker must NOT use this — it
+ * would silently truncate to one page. It uses /api/locations/options.
+ * OWNER + CASHIER + CUTTER (was ungated; explicit allow-list so newly added
+ * roles are denied by default rather than inheriting access).
  */
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
+  if (!canReadLocations(user.role)) return forbiddenResponse();
 
-  const locations = await prisma.location.findMany({
-    orderBy: { code: 'asc' },
-    select: { code: true, rack: true, shelf: true, slot: true, description: true, active: true },
+  const sp = request.nextUrl.searchParams;
+  const q = sp.get('q')?.trim() ?? '';
+  const page = Math.max(1, parseInt(sp.get('page') ?? '1', 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt(sp.get('pageSize') ?? '25', 10)));
+
+  const where = q
+    ? {
+        OR: [
+          { code: { contains: q, mode: 'insensitive' as const } },
+          { description: { contains: q, mode: 'insensitive' as const } },
+        ],
+      }
+    : {};
+
+  const [locations, total] = await prisma.$transaction([
+    prisma.location.findMany({
+      where,
+      orderBy: { code: 'asc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: { code: true, rack: true, shelf: true, slot: true, description: true, active: true },
+    }),
+    prisma.location.count({ where }),
+  ]);
+
+  return NextResponse.json({
+    locations: locations satisfies LocationRecord[],
+    total,
+    page,
+    pageSize,
+    pageCount: Math.ceil(total / pageSize),
   });
-
-  return NextResponse.json(locations satisfies LocationRecord[]);
 }
 
 /**
  * POST /api/locations
- * Creates a new location. Any authenticated non-CUTTER user (LocationPicker uses this
- * inline when a cashier types a new code during catalog edit — OWNER only in practice
- * since catalog is OWNER-only, but CASHIER is allowed to create locations for the POS).
+ * Creates a new location. OWNER + CUTTER — LocationPicker uses this inline when
+ * a new shelf code is typed during a catalog edit.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (!canEditCatalog(user.role)) return forbiddenResponse();
 
   let body: unknown;
   try { body = await request.json(); } catch {

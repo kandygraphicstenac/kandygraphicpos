@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { PosSearchQuerySchema } from '@/lib/validators/pos';
+import { canUsePos } from '@/lib/permissions';
 import type {
   PartResult,
   SetResult,
@@ -37,14 +38,12 @@ type RawPartRow = {
   id: number;
   sku: string;
   name: string;
-  colorScheme: string | null;
   price: string;    // NUMERIC cast ::text
   cost: string | null;
   finishedStock: number;
   reorderLevel: number;
   imageUrl: string | null;
   soldSeparately: boolean;
-  isKit: boolean;
   brand: string;
   model: string;
   year: number;
@@ -145,7 +144,7 @@ function withSetCursor(base: Prisma.Sql, cursor: CursorData | null): Prisma.Sql 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canUsePos(user.role)) return forbiddenResponse();
 
   const { searchParams } = new URL(request.url);
   const parsed = PosSearchQuerySchema.safeParse({
@@ -187,14 +186,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         p.id,
         p.sku,
         p.name,
-        p."colorScheme",
         p.price::text           AS price,
         p.cost::text            AS cost,
         p."finishedStock"::int  AS "finishedStock",
         p."reorderLevel"::int   AS "reorderLevel",
         p."imageUrl",
         p."soldSeparately",
-        p."isKit",
         p."locationCode",
         bm.brand,
         bm.model,
@@ -256,7 +253,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     sku: p.sku,
     name: p.name,
     bikeModel: { brand: p.brand, model: p.model, year: p.year, yearEnd: p.yearEnd, country: p.country },
-    colorScheme: p.colorScheme,
     price: p.price,
     cost: showCost && p.cost != null ? p.cost : null,
     finishedStock: p.finishedStock,
@@ -264,7 +260,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     uncutQty: p.uncutQty,
     imageUrl: p.imageUrl,
     soldSeparately: p.soldSeparately,
-    isKit: p.isKit,
     exactMatch: p.sku.toLowerCase() === qLower,
     locationCode: p.locationCode,
   }));

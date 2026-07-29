@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { AdjustBodySchema } from '@/lib/validators/catalog';
 import { adjustStock, StockAdjustError } from '@/lib/services/stockAdjustService';
+import { canEditCatalog } from '@/lib/permissions';
 
 /**
  * POST /api/catalog/sets/[id]/adjust
  * Body: { delta: number, reason: 'INITIAL'|'RECOUNT'|'DAMAGE'|'OTHER', note?: string }
  *
  * Adjusts a set's own packedStock (never its component parts) and writes a
- * matching StockTxn in the same transaction. OWNER only.
+ * matching StockTxn in the same transaction. OWNER + CUTTER.
  */
 export async function POST(
   request: NextRequest,
@@ -16,7 +17,7 @@ export async function POST(
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canEditCatalog(user.role)) return forbiddenResponse();
 
   const { id } = await params;
   const numId = parseInt(id, 10);

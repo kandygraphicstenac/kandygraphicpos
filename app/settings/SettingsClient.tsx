@@ -1,5 +1,7 @@
 'use client';
 
+import { ASSIGNABLE_ROLES, ROLE_LABELS } from '@/lib/permissions';
+
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { CompanyRecord } from '@/lib/types/company';
@@ -463,10 +465,12 @@ type DbUser = {
   hasActivity: boolean;
 };
 
-const ROLES = ['OWNER', 'CASHIER', 'CUTTER'] as const;
-const ROLE_LABEL: Record<string, string> = { OWNER: 'Owner', CASHIER: 'Cashier', CUTTER: 'Cutter' };
+// Sourced from lib/permissions.ts so the assignable list can't drift from the
+// Role enum or the API's Zod schemas.
+const ROLES = ASSIGNABLE_ROLES;
+const ROLE_LABEL: Record<string, string> = ROLE_LABELS;
 
-const EMPTY_FORM = { email: '', name: '', role: 'CASHIER' as const, password: '' };
+const EMPTY_FORM = { email: '', name: '', role: 'CASHIER' as string, password: '' };
 
 function UserManagement() {
   const qc = useQueryClient();

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
+import { canManageCustomers } from '@/lib/permissions';
 import { CustomerBodySchema, CustomerQuerySchema } from '@/lib/validators/customer';
 
 /**
@@ -12,7 +13,7 @@ import { CustomerBodySchema, CustomerQuerySchema } from '@/lib/validators/custom
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canManageCustomers(user.role)) return forbiddenResponse();
 
   const { searchParams } = new URL(request.url);
   const parsed = CustomerQuerySchema.safeParse(Object.fromEntries(searchParams));
@@ -90,7 +91,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canManageCustomers(user.role)) return forbiddenResponse();
 
   let raw: unknown;
   try {

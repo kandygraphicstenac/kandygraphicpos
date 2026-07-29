@@ -1,19 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
+import sharp from 'sharp';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
+import { canEditCatalog } from '@/lib/permissions';
 import { createClient } from '@supabase/supabase-js';
 
-const BUCKET = 'catalog-images';
+/**
+ * The ONE storage bucket for catalog photos, and this route is the ONE way in.
+ *
+ * There used to be a second, direct browser-to-Supabase upload path pointing at
+ * a different bucket name, which is how the two drifted apart. Everything now
+ * goes through here so the size/type limits and the resize below cannot be
+ * bypassed by a client.
+ *
+ * Create in the Supabase dashboard as a PUBLIC bucket — the POS renders these
+ * with a plain <img src>.
+ */
+const BUCKET = 'product-images';
+
+const MAX_BYTES = 5 * 1024 * 1024; // 5 MB, on the ORIGINAL upload
+const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
+
+/**
+ * Longest side after resize. The POS grid shows cards a few hundred px wide, so
+ * 1000px covers retina and the larger set-detail view with room to spare while
+ * keeping a phone photo from reaching the till at full size.
+ */
+const MAX_DIMENSION = 1000;
+const WEBP_QUALITY = 80;
 
 /**
  * POST /api/catalog/upload
- * Accepts multipart/form-data with a single "file" field (image).
- * Returns { url } pointing to the public Supabase Storage URL.
- * OWNER only.
+ * multipart/form-data with a single "file" field.
+ * Returns { url } — the public Supabase Storage URL.
+ * OWNER + CUTTER (catalog editors).
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canEditCatalog(user.role)) return forbiddenResponse();
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,23 +57,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'No file provided' }, { status: 400 });
   }
 
-  const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+  // Limits enforced here, server-side — the browser check is convenience only.
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ error: 'File too large (max 5 MB)' }, { status: 413 });
   }
-
-  const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
   if (!ALLOWED.includes(file.type)) {
     return NextResponse.json({ error: 'Only JPEG, PNG, and WebP images are allowed' }, { status: 415 });
   }
 
-  const ext = file.name.split('.').pop() ?? 'jpg';
-  const path = `parts/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  // Resize + recompress before anything is stored.
+  //   .rotate()             — applies EXIF orientation; phone photos are often
+  //                           recorded sideways and would otherwise display rotated.
+  //   fit: 'inside'         — preserves aspect ratio, never crops or distorts.
+  //   withoutEnlargement    — a small image is left alone rather than upscaled.
+  // sharp throwing here also serves as a real content check: a file with a
+  // spoofed image MIME type fails to decode and is rejected rather than stored.
+  let resized: Buffer;
+  try {
+    resized = await sharp(Buffer.from(await file.arrayBuffer()))
+      .rotate()
+      .resize(MAX_DIMENSION, MAX_DIMENSION, { fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: WEBP_QUALITY })
+      .toBuffer();
+  } catch {
+    return NextResponse.json(
+      { error: 'That file could not be read as an image' },
+      { status: 415 },
+    );
+  }
 
-  const arrayBuffer = await file.arrayBuffer();
+  // Always .webp — the output format is fixed by the pipeline above.
+  const path = `catalog/${Date.now()}-${randomUUID()}.webp`;
+
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(path, new Uint8Array(arrayBuffer), { contentType: file.type, upsert: false });
+    .upload(path, resized, { contentType: 'image/webp', upsert: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

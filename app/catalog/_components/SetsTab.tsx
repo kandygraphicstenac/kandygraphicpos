@@ -5,10 +5,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { printLabels } from '@/lib/utils/printLabels';
 import { SetModal } from './SetModal';
 import { AdjustStockModal } from './AdjustStockModal';
+import { Pagination, DEFAULT_PAGE_SIZE } from '@/components/Pagination';
+import { useDebounced } from '@/lib/hooks/useDebounced';
 import { yearLabel } from '@/lib/utils/modelLabel';
 import { setAvailability } from '@/lib/utils/setAvailability';
 
-type Part = { id: number; sku: string; name: string; price: string | null; finishedStock: number };
+// Mirrors SetModal's Part — `color` distinguishes parts that share a name.
+type Part = {
+  id: number; sku: string; name: string;
+  price: string | null; finishedStock: number; color: string | null;
+};
 type BikeModel = { id: number; brand: string; model: string; year: number; yearEnd: number | null; country: string | null };
 
 type StickerSet = {
@@ -21,11 +27,17 @@ type StickerSet = {
   components: { partId: number; qty: number; part: Part }[];
 };
 
-interface Props { isOwner: boolean }
+type SetsPage = {
+  sets: StickerSet[];
+  total: number; page: number; pageSize: number; pageCount: number;
+};
+
+/** Only delete is role-gated here — see PartsTab. */
+interface Props { canDelete: boolean }
 
 const LKR = new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' });
 
-export function SetsTab({ isOwner }: Props) {
+export function SetsTab({ canDelete }: Props) {
   const qc = useQueryClient();
   const [modal, setModal] = useState<
     | { type: 'create' }
@@ -35,21 +47,30 @@ export function SetsTab({ isOwner }: Props) {
   >(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [modelId, setModelId] = useState('');
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const debouncedQ = useDebounced(q, 300);
 
+  // /options, not the paginated list — the filter must offer every model.
   const { data: bikeModels = [] } = useQuery<BikeModel[]>({
-    queryKey: ['bike-models'],
-    queryFn: () => fetch('/api/catalog/bike-models').then((r) => r.json()),
+    queryKey: ['bike-models', 'options'],
+    queryFn: () => fetch('/api/catalog/bike-models/options').then((r) => r.json()),
     staleTime: 60_000,
   });
 
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   if (modelId) params.set('modelId', modelId);
+  if (debouncedQ) params.set('q', debouncedQ);
 
-  const { data: sets = [], isLoading } = useQuery<StickerSet[]>({
-    queryKey: ['sets', { modelId }],
+  const { data, isLoading } = useQuery<SetsPage>({
+    queryKey: ['sets', { q: debouncedQ, modelId, page, pageSize }],
     queryFn: () => fetch(`/api/catalog/sets?${params}`).then((r) => r.json()),
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
   });
+
+  const sets = data?.sets ?? [];
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -86,9 +107,22 @@ export function SetsTab({ isOwner }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
+        <div className="relative">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-3 pointer-events-none" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="6.5" cy="6.5" r="4.5" /><path d="M10.5 10.5l3 3" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            placeholder="Search SKU or name…"
+            value={q}
+            onChange={(e) => { setQ(e.target.value); setPage(1); }}
+            className="pl-8 pr-3 h-9 w-52 bg-surface border border-border rounded-lg text-[13px] text-text placeholder:text-text-3 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors"
+          />
+        </div>
+
         <select
           value={modelId}
-          onChange={(e) => setModelId(e.target.value)}
+          onChange={(e) => { setModelId(e.target.value); setPage(1); }}
           className="h-9 px-3 bg-surface border border-border rounded-lg text-[13px] text-text focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors"
         >
           <option value="">All models</option>
@@ -109,15 +143,13 @@ export function SetsTab({ isOwner }: Props) {
               Print labels ({selected.size})
             </button>
           )}
-          {isOwner && (
-            <button
-              type="button"
-              onClick={() => setModal({ type: 'create' })}
-              className="h-8 px-4 rounded-lg bg-accent text-accent-fg text-[13px] font-medium hover:opacity-90 transition-opacity"
-            >
-              + New set
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setModal({ type: 'create' })}
+            className="h-8 px-4 rounded-lg bg-accent text-accent-fg text-[13px] font-medium hover:opacity-90 transition-opacity"
+          >
+            + New set
+          </button>
         </div>
       </div>
 
@@ -128,7 +160,7 @@ export function SetsTab({ isOwner }: Props) {
           <div className="py-16 text-center text-text-3 text-[13px]">Loading…</div>
         ) : sets.length === 0 ? (
           <div className="py-16 text-center text-text-3 text-[13px]">
-            {modelId ? 'No sets for this model' : 'No sticker sets yet'}
+            {q || modelId ? 'No sets match these filters' : 'No sticker sets yet'}
           </div>
         ) : (
           <table className="w-full text-[13px]">
@@ -211,27 +243,24 @@ export function SetsTab({ isOwner }: Props) {
                         >
                           Label
                         </button>
-                        {isOwner && (
-                          <button
-                            type="button"
-                            onClick={() => setModal({ type: 'adjust', set: s })}
-                            className="text-[12px] text-text-2 hover:text-text transition-colors"
-                          >
-                            Adjust
-                          </button>
-                        )}
-                        {isOwner && (
-                          <button
-                            type="button"
-                            onClick={() => setModal({ type: 'edit', set: s })}
-                            className="text-[12px] text-text-2 hover:text-text transition-colors"
-                            title={s.hasInvoices && s.active ? 'Has sales history — deactivate via Edit' : undefined}
-                          >
-                            Edit
-                          </button>
-                        )}
-                        {/* Delete only shown for sets with no invoice history; use Edit → active toggle otherwise */}
-                        {isOwner && !s.hasInvoices && (
+                        <button
+                          type="button"
+                          onClick={() => setModal({ type: 'adjust', set: s })}
+                          className="text-[12px] text-text-2 hover:text-text transition-colors"
+                        >
+                          Adjust
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setModal({ type: 'edit', set: s })}
+                          className="text-[12px] text-text-2 hover:text-text transition-colors"
+                          title={s.hasInvoices && s.active ? 'Has sales history — deactivate via Edit' : undefined}
+                        >
+                          Edit
+                        </button>
+                        {/* OWNER only, and only for sets with no invoice history —
+                            CUTTER never sees this; use Edit → active toggle. */}
+                        {canDelete && !s.hasInvoices && (
                           <button
                             type="button"
                             disabled={deleteMutation.isPending}
@@ -255,6 +284,18 @@ export function SetsTab({ isOwner }: Props) {
           </table>
         )}
       </div>
+
+      {data && (
+        <Pagination
+          page={data.page}
+          pageCount={data.pageCount}
+          total={data.total}
+          pageSize={data.pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+          itemLabel="set"
+        />
+      )}
 
       {modal?.type === 'create' && <SetModal onClose={() => setModal(null)} />}
       {modal?.type === 'edit' && <SetModal existing={modal.set} onClose={() => setModal(null)} />}

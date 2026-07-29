@@ -21,7 +21,7 @@ export function NavLinks() {
     { href: '/pos',       label: 'POS',         roles: ['OWNER', 'CASHIER'] },
     { href: '/invoices',  label: 'Invoices',     roles: ['OWNER', 'CASHIER'] },
     { href: '/customers', label: 'Customers',    roles: ['OWNER', 'CASHIER'] },
-    { href: '/catalog',   label: 'Catalog',      roles: ['OWNER'] },          // CASHIER: no catalog
+    { href: '/catalog',   label: 'Catalog',      roles: ['OWNER', 'CUTTER'] }, // CASHIER: no catalog
     { href: '/cut-issue', label: 'Cut & Issue',  roles: ['OWNER', 'CUTTER'] },
     { href: '/sheets',    label: 'Sheets',       roles: ['OWNER', 'CUTTER'] },
     { href: '/reports',   label: 'Reports',      roles: ['OWNER'] },

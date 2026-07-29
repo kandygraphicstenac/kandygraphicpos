@@ -36,21 +36,19 @@ const PartObjectSchema = z.object({
   sku: z.string().min(1).max(60).trim(),
   name: z.string().min(1).max(120).trim(),
   bikeModelId: z.number().int().positive(),
-  colorScheme: z.string().max(60).trim().nullable().optional(),
   color: z.string().max(60).trim().nullable().optional(),
-  material: z.string().max(60).trim().nullable().optional(),
-  // price is optional for plain parts; required for kits (enforced by superRefine below)
+  // Optional for kit components; required when soldSeparately=true (superRefine below)
   price: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Invalid price').nullable().optional(),
   cost: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Invalid cost').nullable().optional(),
   reorderLevel: z.number().int().min(0).default(0),
   soldSeparately: z.boolean().default(true),
-  isKit: z.boolean().default(false),
   imageUrl: z.string().url().nullable().optional(),
   locationCode: z.string().trim().toUpperCase().max(20).nullable().optional(),
 });
 
-// price is required only when soldSeparately=true — that item is bought by customers on its own.
-// isKit is a display-only label and never affects the price requirement.
+// Price is required only when soldSeparately=true — that item is bought by
+// customers on its own. Unticked means it's a kit component: no price needed,
+// hidden from POS, and badged "Kit part" (derived, not stored).
 function soldSeparatelyPriceRefine(
   data: { soldSeparately?: boolean; price?: string | null },
   ctx: z.RefinementCtx,

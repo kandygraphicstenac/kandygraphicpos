@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
+import { canManageCustomers } from '@/lib/permissions';
 import { RecordPaymentBodySchema } from '@/lib/validators/customer';
 import { recordPayment, CreditError } from '@/lib/services/creditService';
 
@@ -17,7 +18,7 @@ export async function POST(
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canManageCustomers(user.role)) return forbiddenResponse();
 
   const { id: idParam } = await params;
   const customerId = parseInt(idParam, 10);

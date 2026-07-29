@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import bwipjs from 'bwip-js/node';
 import { getCurrentUser } from '@/lib/auth';
+import { canPrintSalesDocs } from '@/lib/permissions';
 import { getShippingLabelData } from '@/lib/services/shippingLabelService';
 import { AutoPrint } from './AutoPrint';
 import { ShippingLabelToolbar } from './ShippingLabelToolbar';
@@ -31,7 +32,7 @@ export default async function ShippingLabelPage({
   searchParams: Promise<{ format?: string; autoprint?: string }>;
 }) {
   const user = await getCurrentUser();
-  if (!user || user.role === 'CUTTER') redirect('/');
+  if (!user || !canPrintSalesDocs(user.role)) redirect('/');
 
   const { invoiceId } = await params;
   const { format: fmtParam, autoprint } = await searchParams;

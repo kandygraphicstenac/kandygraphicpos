@@ -33,9 +33,13 @@ export function LocationPicker({
   // Sync when parent clears/changes value
   useEffect(() => { setInputVal(value ?? ''); }, [value]);
 
+  // /options, not the list endpoint: the list is paginated, so a picker fed
+  // from it would silently hide shelves past page 1. Key is nested under
+  // 'locations' so existing invalidateQueries({ queryKey: ['locations'] })
+  // calls still refresh it by prefix match.
   const { data: locations = [] } = useQuery<LocationRecord[]>({
-    queryKey: ['locations'],
-    queryFn: () => fetch('/api/locations').then((r) => r.json()),
+    queryKey: ['locations', 'options'],
+    queryFn: () => fetch('/api/locations/options').then((r) => r.json()),
     staleTime: 60_000,
   });
 

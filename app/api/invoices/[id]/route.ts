@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
+import { canViewInvoices } from '@/lib/permissions';
 
 /**
  * GET /api/invoices/[id]
@@ -18,7 +19,7 @@ export async function GET(
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canViewInvoices(user.role)) return forbiddenResponse();
 
   const { id } = await params;
 

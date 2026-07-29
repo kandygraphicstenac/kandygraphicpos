@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
+import { canViewInvoices } from '@/lib/permissions';
 
 const QuerySchema = z.object({
   cursor: z.string().optional(),
@@ -52,7 +53,7 @@ function colomboTodayRangeUtc(): { start: Date; end: Date } {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canViewInvoices(user.role)) return forbiddenResponse();
 
   const { searchParams } = new URL(request.url);
   const parsed = QuerySchema.safeParse(Object.fromEntries(searchParams));

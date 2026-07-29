@@ -2,15 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma, TXN_OPTIONS } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { SetUpdateSchema } from '@/lib/validators/catalog';
+import { canEditCatalog, canDeleteCatalog } from '@/lib/permissions';
 import { Decimal } from '@prisma/client/runtime/library';
 
+/** OWNER + CUTTER. */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canEditCatalog(user.role)) return forbiddenResponse();
 
   const { id } = await params;
   const numId = parseInt(id, 10);
@@ -52,7 +54,7 @@ export async function PATCH(
             : {}),
         },
         include: {
-          components: { include: { part: { select: { name: true, sku: true, price: true } } } },
+          components: { include: { part: { select: { name: true, sku: true, price: true, color: true } } } },
           bikeModel: { select: { id: true, brand: true, model: true, year: true, yearEnd: true } },
         },
       });
@@ -75,13 +77,14 @@ export async function PATCH(
   }
 }
 
+/** OWNER only — CUTTER may edit sets but never delete them. */
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canDeleteCatalog(user.role)) return forbiddenResponse();
 
   const { id } = await params;
   const numId = parseInt(id, 10);

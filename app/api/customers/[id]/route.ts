@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { CustomerBodySchema } from '@/lib/validators/customer';
+import { canManageCustomers } from '@/lib/permissions';
 
 /**
  * GET /api/customers/[id]
@@ -18,7 +19,7 @@ export async function GET(
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canManageCustomers(user.role)) return forbiddenResponse();
 
   const { id: idParam } = await params;
   const id = parseInt(idParam, 10);
@@ -103,7 +104,7 @@ export async function PATCH(
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canManageCustomers(user.role)) return forbiddenResponse();
 
   const { id: idParam } = await params;
   const id = parseInt(idParam, 10);

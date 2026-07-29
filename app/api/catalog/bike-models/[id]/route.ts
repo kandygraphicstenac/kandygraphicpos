@@ -2,14 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { BikeModelUpdateSchema } from '@/lib/validators/catalog';
+import { canEditCatalog, canDeleteCatalog } from '@/lib/permissions';
 
+/** OWNER + CUTTER. */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canEditCatalog(user.role)) return forbiddenResponse();
 
   const { id } = await params;
   const numId = parseInt(id, 10);
@@ -39,13 +41,14 @@ export async function PATCH(
   }
 }
 
+/** OWNER only — CUTTER may edit bike models but never delete them. */
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canDeleteCatalog(user.role)) return forbiddenResponse();
 
   const { id } = await params;
   const numId = parseInt(id, 10);

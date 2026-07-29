@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import bwipjs from 'bwip-js/node';
 import { getCurrentUser } from '@/lib/auth';
+import { canPrintSalesDocs } from '@/lib/permissions';
 import { prisma } from '@/lib/db';
 import { AutoPrint } from './AutoPrint';
 import { ReceiptToolbar } from './ReceiptToolbar';
@@ -38,7 +39,7 @@ export default async function ReceiptPage({
   searchParams: Promise<{ autoprint?: string }>;
 }) {
   const user = await getCurrentUser();
-  if (!user || user.role === 'CUTTER') redirect('/');
+  if (!user || !canPrintSalesDocs(user.role)) redirect('/');
 
   const { invoiceId } = await params;
   const { autoprint } = await searchParams;

@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import type { FiltersResponse } from '@/lib/types/pos';
+import { canUsePos } from '@/lib/permissions';
 
 export async function GET(): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canUsePos(user.role)) return forbiddenResponse();
 
   const bikeModels = await prisma.bikeModel.findMany({
     select: { id: true, brand: true, model: true, year: true, yearEnd: true },

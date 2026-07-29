@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { completeSale, SaleError } from '@/lib/services/saleService';
 import { PosSaleBodySchema } from '@/lib/validators/pos';
+import { canUsePos } from '@/lib/permissions';
 
 /**
  * POST /api/pos/sale
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // ── Auth ─────────────────────────────────────────────────────────────────────
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canUsePos(user.role)) return forbiddenResponse();
 
   // ── Validate body ─────────────────────────────────────────────────────────────
   let raw: unknown;

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
+import { ASSIGNABLE_ROLES } from '@/lib/permissions';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 /**
@@ -32,7 +33,7 @@ export async function GET(): Promise<NextResponse> {
 const CreateSchema = z.object({
   email: z.string().email(),
   name: z.string().trim().min(1).max(100),
-  role: z.enum(['OWNER', 'CASHIER', 'CUTTER']),
+  role: z.enum(ASSIGNABLE_ROLES),
   password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 

@@ -15,8 +15,17 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'locations', label: 'Locations' },
 ];
 
-// Catalog is OWNER-only — the page guard enforces this server-side.
-export function CatalogClientPage() {
+interface Props {
+  /**
+   * OWNER only. Resolved server-side in page.tsx and threaded down so the tabs
+   * never infer permissions themselves. Hiding delete is presentation only —
+   * every catalog DELETE route re-checks the role and 403s regardless.
+   */
+  canDelete: boolean;
+}
+
+// Catalog is OWNER + CUTTER — the page guard enforces access server-side.
+export function CatalogClientPage({ canDelete }: Props) {
   const [tab, setTab] = useState<Tab>('parts');
 
   const tabCls = (active: boolean) =>
@@ -53,10 +62,10 @@ export function CatalogClientPage() {
 
         {/* Tab content */}
         <div>
-          {tab === 'models' && <BikeModelsTab />}
-          {tab === 'parts' && <PartsTab isOwner />}
-          {tab === 'sets' && <SetsTab isOwner />}
-          {tab === 'locations' && <LocationsTab />}
+          {tab === 'models' && <BikeModelsTab canDelete={canDelete} />}
+          {tab === 'parts' && <PartsTab canDelete={canDelete} />}
+          {tab === 'sets' && <SetsTab canDelete={canDelete} />}
+          {tab === 'locations' && <LocationsTab canDelete={canDelete} />}
         </div>
       </div>
     </div>

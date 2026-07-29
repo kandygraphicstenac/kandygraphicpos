@@ -2,21 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { PartCreateSchema } from '@/lib/validators/catalog';
+import { canEditCatalog, canViewCatalogCost } from '@/lib/permissions';
 import { Decimal } from '@prisma/client/runtime/library';
 
 /**
  * GET /api/catalog/parts
  * Query params: q, modelId, page (1-based), pageSize (default 25)
- * CUTTER blocked. Cost hidden for CASHIER.
+ * OWNER + CUTTER. CASHIER blocked.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canEditCatalog(user.role)) return forbiddenResponse();
 
   const sp = request.nextUrl.searchParams;
   const q = sp.get('q')?.trim() ?? '';
   const modelId = sp.get('modelId') ? parseInt(sp.get('modelId')!, 10) : undefined;
+  const color = sp.get('color')?.trim() ?? '';
   const page = Math.max(1, parseInt(sp.get('page') ?? '1', 10));
   const pageSize = Math.min(100, Math.max(1, parseInt(sp.get('pageSize') ?? '25', 10)));
 
@@ -30,6 +32,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         }
       : {}),
     ...(modelId ? { bikeModelId: modelId } : {}),
+    // Case-insensitive so "Blue/Red" and "blue/red" — both present in this
+    // catalog — are treated as the same colour. Combines with `q` (AND), so
+    // search and colour filter narrow together.
+    ...(color ? { color: { equals: color, mode: 'insensitive' as const } } : {}),
   };
 
   const [parts, total] = await prisma.$transaction([
@@ -47,7 +53,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     prisma.part.count({ where }),
   ]);
 
-  const showCost = user.role === 'OWNER';
+  const showCost = canViewCatalogCost(user.role);
 
   return NextResponse.json({
     parts: parts.map((p) => ({
@@ -56,10 +62,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       name: p.name,
       bikeModelId: p.bikeModelId,
       bikeModel: p.bikeModel,
-      colorScheme: p.colorScheme,
       color: p.color,
-      material: p.material,
-      isKit: p.isKit,
       price: p.price?.toString() ?? null,
       cost: showCost ? (p.cost?.toString() ?? null) : undefined,
       finishedStock: p.finishedStock,
@@ -80,12 +83,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 /**
  * POST /api/catalog/parts
- * Creates a new part. OWNER only.
+ * Creates a new part. OWNER + CUTTER.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canEditCatalog(user.role)) return forbiddenResponse();
 
   let body: unknown;
   try { body = await request.json(); } catch {
@@ -105,10 +108,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         sku: d.sku,
         name: d.name,
         bikeModelId: d.bikeModelId,
-        colorScheme: d.colorScheme ?? null,
         color: d.color ?? null,
-        material: d.material ?? null,
-        isKit: d.isKit ?? false,
         price: d.price ? new Decimal(d.price) : null,
         cost: d.cost ? new Decimal(d.cost) : null,
         reorderLevel: d.reorderLevel ?? 0,

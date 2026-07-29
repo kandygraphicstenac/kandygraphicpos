@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BikeModelModal } from './BikeModelModal';
+import { Pagination, DEFAULT_PAGE_SIZE } from '@/components/Pagination';
+import { useDebounced } from '@/lib/hooks/useDebounced';
 import { yearLabel } from '@/lib/utils/modelLabel';
 
 type BikeModel = {
@@ -15,17 +17,44 @@ type BikeModel = {
   _count: { parts: number; sets: number };
 };
 
-export function BikeModelsTab() {
+type BikeModelsPage = {
+  bikeModels: BikeModel[];
+  total: number; page: number; pageSize: number; pageCount: number;
+};
+
+/** Slim row from /options — used for the brand/country datalists. */
+type BikeModelOption = { brand: string; country: string | null };
+
+/** Only delete is role-gated here — see PartsTab. */
+interface Props { canDelete: boolean }
+
+export function BikeModelsTab({ canDelete }: Props) {
   const qc = useQueryClient();
   const [modalState, setModalState] = useState<
     { type: 'create' } | { type: 'edit'; model: BikeModel } | null
   >(null);
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const debouncedQ = useDebounced(q, 300);
 
-  const { data: models = [], isLoading } = useQuery<BikeModel[]>({
-    queryKey: ['bike-models'],
-    queryFn: () => fetch('/api/catalog/bike-models').then((r) => r.json()),
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (debouncedQ) params.set('q', debouncedQ);
+
+  const { data, isLoading } = useQuery<BikeModelsPage>({
+    queryKey: ['bike-models', { q: debouncedQ, page, pageSize }],
+    queryFn: () => fetch(`/api/catalog/bike-models?${params}`).then((r) => r.json()),
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
+  });
+
+  const models = data?.bikeModels ?? [];
+
+  const { data: allOptions = [] } = useQuery<BikeModelOption[]>({
+    queryKey: ['bike-models', 'options'],
+    queryFn: () => fetch('/api/catalog/bike-models/options').then((r) => r.json()),
+    staleTime: 60_000,
   });
 
   const deleteMutation = useMutation({
@@ -43,19 +72,32 @@ export function BikeModelsTab() {
     onError: (e: Error) => setDeleteErr(e.message),
   });
 
-  const brandOptions = [...new Set(models.map((m) => m.brand))].sort();
-  const countryOptions = [...new Set(models.map((m) => m.country).filter(Boolean) as string[])].sort();
+  // Datalist suggestions come from /options, not the current page — otherwise
+  // the brand/country hints would only reflect whichever 25 rows are on screen.
+  const brandOptions = [...new Set(allOptions.map((m) => m.brand))].sort();
+  const countryOptions = [...new Set(allOptions.map((m) => m.country).filter(Boolean) as string[])].sort();
 
-  if (isLoading) return <div className="py-16 text-center text-text-3 text-[13px]">Loading…</div>;
+  if (isLoading && !data) return <div className="py-16 text-center text-text-3 text-[13px]">Loading…</div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-[13px] text-text-2">{models.length} bike model{models.length !== 1 ? 's' : ''}</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-3 pointer-events-none" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="6.5" cy="6.5" r="4.5" /><path d="M10.5 10.5l3 3" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            placeholder="Search brand or model…"
+            value={q}
+            onChange={(e) => { setQ(e.target.value); setPage(1); }}
+            className="pl-8 pr-3 h-9 w-52 bg-surface border border-border rounded-lg text-[13px] text-text placeholder:text-text-3 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors"
+          />
+        </div>
         <button
           type="button"
           onClick={() => setModalState({ type: 'create' })}
-          className="h-8 px-4 rounded-lg bg-accent text-accent-fg text-[13px] font-medium hover:opacity-90 transition-opacity"
+          className="ml-auto h-8 px-4 rounded-lg bg-accent text-accent-fg text-[13px] font-medium hover:opacity-90 transition-opacity"
         >
           + New model
         </button>
@@ -71,7 +113,9 @@ export function BikeModelsTab() {
           stays reachable while the rest of the table scrolls. */}
       <div className="bg-surface border border-border rounded-xl overflow-x-auto">
         {models.length === 0 ? (
-          <div className="py-16 text-center text-text-3 text-[13px]">No bike models yet. Add one to start cataloguing parts.</div>
+          <div className="py-16 text-center text-text-3 text-[13px]">
+            {q ? 'No bike models match this search' : 'No bike models yet. Add one to start cataloguing parts.'}
+          </div>
         ) : (
           <table className="w-full text-[13px]">
             <thead>
@@ -109,19 +153,22 @@ export function BikeModelsTab() {
                       >
                         Edit
                       </button>
-                      <button
-                        type="button"
-                        disabled={m._count.parts > 0 || deleteMutation.isPending}
-                        title={m._count.parts > 0 ? `${m._count.parts} part(s) reference this model` : 'Delete'}
-                        onClick={() => {
-                          if (confirm(`Delete "${m.brand} ${m.model} ${yearLabel(m.year, m.yearEnd)}"?`)) {
-                            deleteMutation.mutate(m.id);
-                          }
-                        }}
-                        className="text-[12px] text-danger-fg hover:opacity-75 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        Delete
-                      </button>
+                      {/* OWNER only — CUTTER never sees this. */}
+                      {canDelete && (
+                        <button
+                          type="button"
+                          disabled={m._count.parts > 0 || deleteMutation.isPending}
+                          title={m._count.parts > 0 ? `${m._count.parts} part(s) reference this model` : 'Delete'}
+                          onClick={() => {
+                            if (confirm(`Delete "${m.brand} ${m.model} ${yearLabel(m.year, m.yearEnd)}"?`)) {
+                              deleteMutation.mutate(m.id);
+                            }
+                          }}
+                          className="text-[12px] text-danger-fg hover:opacity-75 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -130,6 +177,18 @@ export function BikeModelsTab() {
           </table>
         )}
       </div>
+
+      {data && (
+        <Pagination
+          page={data.page}
+          pageCount={data.pageCount}
+          total={data.total}
+          pageSize={data.pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+          itemLabel="bike model"
+        />
+      )}
 
       {modalState && (
         <BikeModelModal

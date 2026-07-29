@@ -5,16 +5,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { printLabels } from '@/lib/utils/printLabels';
 import { PartModal } from './PartModal';
 import { AdjustStockModal } from './AdjustStockModal';
+import { Pagination, DEFAULT_PAGE_SIZE } from '@/components/Pagination';
+import { useDebounced } from '@/lib/hooks/useDebounced';
+import { partBadgeLabel } from '@/lib/utils/partBadge';
 import { yearLabel } from '@/lib/utils/modelLabel';
 
 type BikeModel = { id: number; brand: string; model: string; year: number; yearEnd: number | null; country: string | null };
 
 type Part = {
   id: number; sku: string; name: string; bikeModelId: number;
-  bikeModel: BikeModel; colorScheme: string | null; color: string | null;
-  material: string | null; price: string | null; cost?: string | null;
+  bikeModel: BikeModel; color: string | null;
+  price: string | null; cost?: string | null;
   finishedStock: number; reorderLevel: number;
-  soldSeparately: boolean; isKit: boolean; imageUrl: string | null;
+  soldSeparately: boolean; imageUrl: string | null;
   active: boolean; hasTransactions: boolean;
   locationCode: string | null;
 };
@@ -24,15 +27,23 @@ type PartsPage = {
   total: number; page: number; pageSize: number; pageCount: number;
 };
 
-interface Props { isOwner: boolean }
+/**
+ * Everyone who reaches the Catalog may create/edit/adjust/label (OWNER + CUTTER),
+ * so only delete is gated here. Server routes enforce both regardless.
+ */
+interface Props { canDelete: boolean }
 
 const LKR = new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' });
 
-export function PartsTab({ isOwner }: Props) {
+export function PartsTab({ canDelete }: Props) {
   const qc = useQueryClient();
   const [q, setQ] = useState('');
   const [modelId, setModelId] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  // Debounced so typing doesn't fire a request per keystroke — the query key
+  // below keys off the debounced value, not the raw input.
+  const debouncedQ = useDebounced(q, 300);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [modal, setModal] = useState<
     | { type: 'create' }
@@ -41,17 +52,18 @@ export function PartsTab({ isOwner }: Props) {
     | null
   >(null);
 
+  // /options, not the paginated list — the filter must offer every model.
   const { data: bikeModels = [] } = useQuery<BikeModel[]>({
-    queryKey: ['bike-models'],
-    queryFn: () => fetch('/api/catalog/bike-models').then((r) => r.json()),
+    queryKey: ['bike-models', 'options'],
+    queryFn: () => fetch('/api/catalog/bike-models/options').then((r) => r.json()),
     staleTime: 60_000,
   });
 
-  const params = new URLSearchParams({ page: String(page), pageSize: '25' });
-  if (q) params.set('q', q);
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (debouncedQ) params.set('q', debouncedQ);
   if (modelId) params.set('modelId', modelId);
 
-  const partsQueryKey = ['parts', { q, modelId, page }] as const;
+  const partsQueryKey = ['parts', { q: debouncedQ, modelId, page, pageSize }] as const;
 
   const { data, isLoading } = useQuery<PartsPage>({
     queryKey: partsQueryKey,
@@ -131,14 +143,6 @@ export function PartsTab({ isOwner }: Props) {
     });
   }
 
-  const chipCls = (active: boolean) =>
-    [
-      'h-8 px-3 rounded-full text-[12px] font-medium transition-colors whitespace-nowrap',
-      active
-        ? 'bg-accent text-accent-fg'
-        : 'border border-border text-text-2 hover:border-border-hover hover:text-text',
-    ].join(' ');
-
   // Content cells are muted when part is inactive; action cells (toggle, buttons) stay opaque.
   const contentMuted = (active: boolean) => (active ? '' : 'text-text-3');
 
@@ -182,15 +186,13 @@ export function PartsTab({ isOwner }: Props) {
               Print labels ({selected.size})
             </button>
           )}
-          {isOwner && (
-            <button
-              type="button"
-              onClick={() => setModal({ type: 'create' })}
-              className="h-8 px-4 rounded-lg bg-accent text-accent-fg text-[13px] font-medium hover:opacity-90 transition-opacity"
-            >
-              + New part
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setModal({ type: 'create' })}
+            className="h-8 px-4 rounded-lg bg-accent text-accent-fg text-[13px] font-medium hover:opacity-90 transition-opacity"
+          >
+            + New part
+          </button>
         </div>
       </div>
 
@@ -218,7 +220,7 @@ export function PartsTab({ isOwner }: Props) {
                 <th className="text-left px-3 py-3 font-medium hidden xl:table-cell">Color</th>
                 <th className="text-left px-3 py-3 font-medium hidden md:table-cell">Model</th>
                 <th className="text-right px-3 py-3 font-medium">Price</th>
-                {isOwner && <th className="text-right px-3 py-3 font-medium hidden lg:table-cell">Cost</th>}
+                <th className="text-right px-3 py-3 font-medium hidden lg:table-cell">Cost</th>
                 <th className="text-right px-3 py-3 font-medium">Stock</th>
                 <th className="text-right px-3 py-3 font-medium hidden sm:table-cell">Reorder</th>
                 <th className="text-left px-3 py-3 font-medium hidden lg:table-cell">Location</th>
@@ -228,7 +230,10 @@ export function PartsTab({ isOwner }: Props) {
             </thead>
             <tbody>
               {parts.map((p) => {
-                const lowStock = p.finishedStock <= p.reorderLevel;
+                // A kit component never holds loose selling stock, so a
+                // low-stock warning is meaningless for it — and with both
+                // values at 0 the bare comparison flagged every one of them.
+                const lowStock = p.soldSeparately && p.finishedStock <= p.reorderLevel;
                 const muted = contentMuted(p.active);
                 return (
                   // No opacity on the tr — toggle and Edit must remain at full opacity
@@ -255,9 +260,11 @@ export function PartsTab({ isOwner }: Props) {
                     </td>
                     <td className="px-3 py-3">
                       <div className={`flex items-center gap-1.5 font-mono text-[12px] ${muted || 'text-text'}`}>
-                        {p.isKit && (
+                        {/* Derived from soldSeparately — only the "Kit part"
+                            case is worth flagging next to the SKU. */}
+                        {!p.soldSeparately && (
                           <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-pill-set-bg text-pill-set-fg shrink-0">
-                            Kit
+                            {partBadgeLabel(p.soldSeparately)}
                           </span>
                         )}
                         {p.sku}
@@ -281,16 +288,16 @@ export function PartsTab({ isOwner }: Props) {
                         : <span className="text-[11px] font-medium text-warn-fg bg-warn-bg px-1.5 py-0.5 rounded">No price</span>
                       }
                     </td>
-                    {isOwner && (
-                      <td className={`px-3 py-3 text-right tabular-nums hidden lg:table-cell ${muted || 'text-text-2'}`}>
-                        {p.cost ? LKR.format(parseFloat(p.cost)) : '—'}
-                      </td>
-                    )}
+                    <td className={`px-3 py-3 text-right tabular-nums hidden lg:table-cell ${muted || 'text-text-2'}`}>
+                      {p.cost ? LKR.format(parseFloat(p.cost)) : '—'}
+                    </td>
                     <td className={`px-3 py-3 text-right tabular-nums font-medium ${muted || (lowStock ? 'text-warn-fg' : '')}`}>
                       {p.finishedStock}
                     </td>
                     <td className={`px-3 py-3 text-right tabular-nums hidden sm:table-cell ${muted || 'text-text-3'}`}>
-                      {p.reorderLevel}
+                      {/* Dash, not 0 — a kit component has no reorder level,
+                          and "0" reads as a real threshold that was set. */}
+                      {p.soldSeparately ? p.reorderLevel : '—'}
                     </td>
                     <td className="px-3 py-3 hidden lg:table-cell">
                       {p.locationCode && (
@@ -303,7 +310,7 @@ export function PartsTab({ isOwner }: Props) {
                     <td className="px-3 py-3 text-center hidden sm:table-cell">
                       <button
                         type="button"
-                        disabled={!isOwner || activateMutation.isPending}
+                        disabled={activateMutation.isPending}
                         onClick={() => activateMutation.mutate({ id: p.id, active: !p.active })}
                         title={
                           p.hasTransactions && p.active
@@ -329,26 +336,23 @@ export function PartsTab({ isOwner }: Props) {
                         >
                           Label
                         </button>
-                        {isOwner && (
-                          <button
-                            type="button"
-                            onClick={() => setModal({ type: 'adjust', part: p })}
-                            className="text-[12px] text-text-2 hover:text-text transition-colors"
-                          >
-                            Adjust
-                          </button>
-                        )}
-                        {isOwner && (
-                          <button
-                            type="button"
-                            onClick={() => setModal({ type: 'edit', part: p })}
-                            className="text-[12px] text-text-2 hover:text-text transition-colors"
-                          >
-                            Edit
-                          </button>
-                        )}
-                        {/* Delete only shown for parts with no history; use toggle to deactivate */}
-                        {isOwner && !p.hasTransactions && (
+                        <button
+                          type="button"
+                          onClick={() => setModal({ type: 'adjust', part: p })}
+                          className="text-[12px] text-text-2 hover:text-text transition-colors"
+                        >
+                          Adjust
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setModal({ type: 'edit', part: p })}
+                          className="text-[12px] text-text-2 hover:text-text transition-colors"
+                        >
+                          Edit
+                        </button>
+                        {/* OWNER only, and only for parts with no history —
+                            CUTTER never sees this; use the toggle to deactivate. */}
+                        {canDelete && !p.hasTransactions && (
                           <button
                             type="button"
                             disabled={deleteMutation.isPending}
@@ -374,37 +378,23 @@ export function PartsTab({ isOwner }: Props) {
       </div>
 
       {/* Pagination */}
-      {data && data.pageCount > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-[12px] text-text-3">
-            {data.total} part{data.total !== 1 ? 's' : ''} · Page {data.page} of {data.pageCount}
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-              className={chipCls(false) + ' disabled:opacity-30 disabled:cursor-not-allowed'}
-            >
-              ← Prev
-            </button>
-            <button
-              type="button"
-              disabled={page >= data.pageCount}
-              onClick={() => setPage((p) => p + 1)}
-              className={chipCls(false) + ' disabled:opacity-30 disabled:cursor-not-allowed'}
-            >
-              Next →
-            </button>
-          </div>
-        </div>
+      {data && (
+        <Pagination
+          page={data.page}
+          pageCount={data.pageCount}
+          total={data.total}
+          pageSize={data.pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+          itemLabel="part"
+        />
       )}
 
       {modal?.type === 'create' && (
-        <PartModal isOwner={isOwner} onClose={() => setModal(null)} />
+        <PartModal onClose={() => setModal(null)} />
       )}
       {modal?.type === 'edit' && (
-        <PartModal existing={modal.part} isOwner={isOwner} onClose={() => setModal(null)} />
+        <PartModal existing={modal.part} onClose={() => setModal(null)} />
       )}
       {modal?.type === 'adjust' && (
         <AdjustStockModal

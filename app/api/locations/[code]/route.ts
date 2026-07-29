@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { LocationUpdateSchema } from '@/lib/validators/catalog';
+import { canEditCatalog, canDeleteCatalog } from '@/lib/permissions';
 
 /**
  * PATCH /api/locations/[code]
- * Updates rack/shelf/slot/description/active. OWNER only.
+ * Updates rack/shelf/slot/description/active. OWNER + CUTTER.
  */
 export async function PATCH(
   request: NextRequest,
@@ -13,7 +14,7 @@ export async function PATCH(
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canEditCatalog(user.role)) return forbiddenResponse();
 
   const { code } = await params;
 
@@ -50,6 +51,7 @@ export async function PATCH(
  * DELETE /api/locations/[code]
  * Hard-deletes if no products are assigned; rejects otherwise.
  * Use PATCH { active: false } to deactivate instead.
+ * OWNER only — CUTTER may edit locations but never delete them.
  */
 export async function DELETE(
   _request: NextRequest,
@@ -57,7 +59,7 @@ export async function DELETE(
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canDeleteCatalog(user.role)) return forbiddenResponse();
 
   const { code } = await params;
 

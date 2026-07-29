@@ -1,20 +1,17 @@
 'use client';
 
-// Reusable image upload component for catalog part/set forms.
-// Uploads directly from the browser to Supabase Storage bucket "product-images".
+// Shared image upload for the catalog Part and Set forms.
 //
-// SETUP REQUIRED (one-time in Supabase dashboard):
-//   1. Create bucket: Storage → New bucket → Name: "product-images" → Public: ON
-//   2. Add RLS policy for INSERT: allow authenticated users (or anon if you prefer)
-//      e.g. CREATE POLICY "allow_upload" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'product-images');
+// Posts to /api/catalog/upload — it does NOT talk to Supabase Storage directly.
+// It used to, with the anon key and a different bucket name, which is exactly
+// how the two upload paths drifted apart. Routing through the server keeps the
+// bucket, the size/type limits and the resize in one place where a client
+// cannot skip them.
+//
+// The image is optional everywhere it's used: ~3,000 products are being entered
+// and photos get added over time.
 
 import { useRef, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-);
 
 type Props = {
   value: string | null;
@@ -22,17 +19,20 @@ type Props = {
   label?: string;
 };
 
-export function ImageUpload({ value, onChange, label = 'Product image' }: Props) {
+const MAX_BYTES = 5 * 1024 * 1024;
+
+export function ImageUpload({ value, onChange, label = 'Image' }: Props) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(file: File) {
+    // Friendly pre-checks only — the route re-validates both server-side.
     if (!file.type.startsWith('image/')) {
       setError('Please select an image file');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > MAX_BYTES) {
       setError('Image must be under 5 MB');
       return;
     }
@@ -40,45 +40,43 @@ export function ImageUpload({ value, onChange, label = 'Product image' }: Props)
     setError(null);
     setUploading(true);
     try {
-      // Sanitise filename and prefix with timestamp for uniqueness
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
-      const path = `${Date.now()}-${safeName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('product-images')
-        .upload(path, file, { upsert: true, contentType: file.type });
-
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from('product-images').getPublicUrl(path);
-      onChange(data.publicUrl);
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/catalog/upload', { method: 'POST', body: fd });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error ?? 'Upload failed');
+      onChange(data.url);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
+      // Allow re-selecting the same file after a failure.
+      if (inputRef.current) inputRef.current.value = '';
     }
   }
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    if (file) void handleFile(file);
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    if (file) void handleFile(file);
   }
 
   return (
     <div className="space-y-2">
-      <p className="text-[13px] font-medium text-text-2">{label}</p>
+      <p className="text-[12px] font-medium text-text-2">
+        {label}
+        <span className="ml-1.5 font-normal text-text-3">(optional)</span>
+      </p>
 
-      {/* Preview */}
       {value && (
-        <div className="relative aspect-4/3 w-full max-w-xs rounded-xl overflow-hidden border border-border">
+        <div className="relative aspect-4/3 w-full max-w-3xs rounded-xl overflow-hidden border border-border bg-bg">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={value} alt="Product" className="w-full h-full object-cover" />
+          <img src={value} alt="" className="w-full h-full object-cover" />
           <button
             type="button"
             onClick={() => onChange(null)}
@@ -93,12 +91,11 @@ export function ImageUpload({ value, onChange, label = 'Product image' }: Props)
         </div>
       )}
 
-      {/* Drop zone */}
       <div
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
         onClick={() => inputRef.current?.click()}
-        className="flex flex-col items-center justify-center gap-2 w-full max-w-xs h-28
+        className="flex flex-col items-center justify-center gap-1.5 w-full max-w-3xs h-24
                    border-2 border-dashed border-border rounded-xl cursor-pointer
                    hover:border-border-hover hover:bg-border/30 transition-colors duration-100
                    text-text-3 text-[13px] select-none"
@@ -125,7 +122,7 @@ export function ImageUpload({ value, onChange, label = 'Product image' }: Props)
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp"
         className="sr-only"
         onChange={handleInputChange}
       />

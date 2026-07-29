@@ -4,6 +4,13 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { LocationRecord } from '@/lib/types/location';
 import { printLocationLabels } from '@/lib/utils/printLabels';
+import { Pagination, DEFAULT_PAGE_SIZE } from '@/components/Pagination';
+import { useDebounced } from '@/lib/hooks/useDebounced';
+
+type LocationsPage = {
+  locations: LocationRecord[];
+  total: number; page: number; pageSize: number; pageCount: number;
+};
 
 type EditForm = { rack: string; shelf: string; slot: string; description: string };
 type CreateForm = { code: string } & EditForm;
@@ -14,7 +21,11 @@ function toEditForm(l: LocationRecord): EditForm {
   return { rack: l.rack ?? '', shelf: l.shelf ?? '', slot: l.slot ?? '', description: l.description ?? '' };
 }
 
-export function LocationsTab() {
+/** Only delete is role-gated here — see PartsTab. Deactivate stays available to
+ *  CUTTER, since it's a reversible edit rather than a destructive action. */
+interface Props { canDelete: boolean }
+
+export function LocationsTab({ canDelete }: Props) {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState<CreateForm>(EMPTY_CREATE);
@@ -23,11 +34,22 @@ export function LocationsTab() {
   const [editForm, setEditForm] = useState<EditForm>({ rack: '', shelf: '', slot: '', description: '' });
   const [editError, setEditError] = useState<string | null>(null);
 
-  const { data: locations = [], isLoading } = useQuery<LocationRecord[]>({
-    queryKey: ['locations'],
-    queryFn: () => fetch('/api/locations').then((r) => r.json()),
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const debouncedQ = useDebounced(q, 300);
+
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (debouncedQ) params.set('q', debouncedQ);
+
+  const { data, isLoading } = useQuery<LocationsPage>({
+    queryKey: ['locations', { q: debouncedQ, page, pageSize }],
+    queryFn: () => fetch(`/api/locations?${params}`).then((r) => r.json()),
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
   });
+
+  const locations = data?.locations ?? [];
 
   const createMutation = useMutation({
     mutationFn: async (data: CreateForm) => {
@@ -164,14 +186,27 @@ export function LocationsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-[13px] text-text-3">
-          Shelf and rack codes for finding finished stock. Staff see these on product cards.
-        </p>
+      <p className="text-[13px] text-text-3">
+        Shelf and rack codes for finding finished stock. Staff see these on product cards.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-3 pointer-events-none" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="6.5" cy="6.5" r="4.5" /><path d="M10.5 10.5l3 3" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            placeholder="Search code or description…"
+            value={q}
+            onChange={(e) => { setQ(e.target.value); setPage(1); }}
+            className="pl-8 pr-3 h-9 w-56 bg-surface border border-border rounded-lg text-[13px] text-text placeholder:text-text-3 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors"
+          />
+        </div>
         <button
           type="button"
           onClick={() => { setShowCreate(true); setCreateError(null); setCreateForm(EMPTY_CREATE); }}
-          className="h-8 px-4 rounded-lg bg-accent text-accent-fg text-[13px] font-medium hover:opacity-90 transition-opacity"
+          className="ml-auto h-8 px-4 rounded-lg bg-accent text-accent-fg text-[13px] font-medium hover:opacity-90 transition-opacity"
         >
           + New location
         </button>
@@ -209,7 +244,9 @@ export function LocationsTab() {
           <div className="py-10 text-center text-text-3 text-[13px]">Loading…</div>
         ) : locations.length === 0 ? (
           <div className="py-10 text-center text-text-3 text-[13px]">
-            No locations yet — create one above to start tracking stock positions
+            {q
+              ? 'No locations match this search'
+              : 'No locations yet — create one above to start tracking stock positions'}
           </div>
         ) : (
           <table className="w-full text-[13px]">
@@ -291,15 +328,18 @@ export function LocationsTab() {
                             }`}>
                             {l.active ? 'Deactivate' : 'Activate'}
                           </button>
-                          <button type="button" disabled={deleteMutation.isPending}
-                            onClick={() => {
-                              if (confirm(`Delete location "${l.code}"?\n\nThis will fail if any products or sheets are still assigned to it.`)) {
-                                deleteMutation.mutate(l.code);
-                              }
-                            }}
-                            className="text-[12px] text-danger-fg hover:opacity-75 transition-opacity disabled:opacity-30">
-                            Delete
-                          </button>
+                          {/* OWNER only — CUTTER never sees this. */}
+                          {canDelete && (
+                            <button type="button" disabled={deleteMutation.isPending}
+                              onClick={() => {
+                                if (confirm(`Delete location "${l.code}"?\n\nThis will fail if any products or sheets are still assigned to it.`)) {
+                                  deleteMutation.mutate(l.code);
+                                }
+                              }}
+                              className="text-[12px] text-danger-fg hover:opacity-75 transition-opacity disabled:opacity-30">
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </td>
                     </>
@@ -310,6 +350,18 @@ export function LocationsTab() {
           </table>
         )}
       </div>
+
+      {data && (
+        <Pagination
+          page={data.page}
+          pageCount={data.pageCount}
+          total={data.total}
+          pageSize={data.pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+          itemLabel="location"
+        />
+      )}
     </div>
   );
 }

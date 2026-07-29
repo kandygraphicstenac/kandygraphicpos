@@ -32,15 +32,17 @@ model Part {
   name           String // e.g. "Tank decal left"
   bikeModelId    Int
   bikeModel      BikeModel @relation(fields: [bikeModelId], references: [id])
-  colorScheme    String? // e.g. "Red/Black"
-  color          String? // e.g. "Red", "Chrome", "Holographic"
-  material       String? // e.g. "Laminated vinyl"
+  /// e.g. "Red", "Blue/Red". Feeds the SKU suggestion (lib/utils/skuGen.ts) so
+  /// two colourways of the same part get distinct SKUs.
+  color          String?
   price          Decimal?  @db.Decimal(10, 2) // null = no price; item is non-sellable (hidden from POS)
   cost           Decimal?  @db.Decimal(10, 2)
   finishedStock  Int       @default(0) // cut, ready to sell
   reorderLevel   Int       @default(0)
+  /// Drives the price requirement, POS visibility, AND the badge:
+  /// false => "Kit part" (component of a kit, not sold on its own).
+  /// See lib/utils/partBadge.ts — there is no separate isKit field.
   soldSeparately Boolean   @default(true)
-  isKit          Boolean   @default(false) // display-only label: shows "Kit" badge instead of "Part"
   imageUrl       String?
   active         Boolean   @default(true)
   createdAt      DateTime  @default(now())
@@ -402,6 +404,11 @@ enum Role {
   OWNER
   CASHIER
   CUTTER
+  /// Reserved for the two-level stock-issue approval workflow. No module access
+  /// yet — capabilities are allow-listed in lib/permissions.ts, so a role that
+  /// isn't named in a list gets nothing.
+  SALES
+  ACCOUNT
 }
 
 model User {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
+import { canUsePos } from '@/lib/permissions';
 
 // DELETE /api/pos/hold/[id] — restore or discard a held sale
 export async function DELETE(
@@ -9,7 +10,7 @@ export async function DELETE(
 ): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role === 'CUTTER') return forbiddenResponse();
+  if (!canUsePos(user.role)) return forbiddenResponse();
 
   const { id } = await params;
   const heldId = parseInt(id, 10);

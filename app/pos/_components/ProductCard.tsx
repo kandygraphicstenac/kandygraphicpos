@@ -1,6 +1,7 @@
 import { forwardRef } from 'react';
 import type { PosSearchResult } from '@/lib/types/pos';
 import { yearLabel } from '@/lib/utils/modelLabel';
+import { partBadgeLabel } from '@/lib/utils/partBadge';
 
 const LKR = new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' });
 
@@ -89,12 +90,15 @@ export const ProductCard = forwardRef<HTMLButtonElement, Props>(function Product
           <span
             className={[
               'shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-md',
-              result.type === 'part' && !result.isKit
+              result.type === 'part' && result.soldSeparately
                 ? 'bg-pill-part-bg text-pill-part-fg'
                 : 'bg-pill-set-bg text-pill-set-fg',
             ].join(' ')}
           >
-            {result.type === 'set' ? 'Full set' : result.isKit ? 'Kit' : 'Part'}
+            {/* Part badge is derived from soldSeparately. In practice POS search
+                only returns sold-separately parts, so this reads "Part" — the
+                helper keeps it correct if that filter ever changes. */}
+            {result.type === 'set' ? 'Full set' : partBadgeLabel(result.soldSeparately)}
           </span>
           <span className="font-mono text-[11px] text-text-3 tabular-nums truncate min-w-0">
             {result.sku}

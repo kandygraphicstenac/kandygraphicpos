@@ -3,6 +3,7 @@ import bwipjs from 'bwip-js/node';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getLabelStockSettings, type LabelStockSettings } from '@/lib/services/settingsService';
+import { canPrintLabels } from '@/lib/permissions';
 import { LabelViewer, type LabelItem } from './LabelViewer';
 import { AutoPrint } from './AutoPrint';
 import type { LabelFormat } from '@/lib/utils/printLabels';
@@ -34,7 +35,9 @@ export default async function LabelsPage({
   searchParams: Promise<{ type?: string; ids?: string; qty?: string; format?: string; autoprint?: string }>;
 }) {
   const user = await getCurrentUser();
-  if (!user || user.role === 'CUTTER') redirect('/');
+  // OWNER and CUTTER print from the catalog, CASHIER reprints from the POS.
+  // Allow-listed so newly added roles don't inherit label printing.
+  if (!user || !canPrintLabels(user.role)) redirect('/');
 
   const { type, ids: idsParam, qty: qtyParam, format: fmtParam, autoprint } = await searchParams;
 
@@ -61,7 +64,7 @@ export default async function LabelsPage({
     const rawCodes = (idsParam ?? '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 200);
     if (rawCodes.length === 0) {
       return (
-        <div style={{ padding: 40, textAlign: 'center', color: '#888', fontFamily: 'system-ui', fontSize: 13 }}>
+        <div style={{ padding: 40, textAlign: 'center', color: '#888', fontFamily: 'system-ui', fontSize: 10 }}>
           No location codes selected.
         </div>
       );
@@ -99,7 +102,7 @@ export default async function LabelsPage({
 
   if (rawIds.length === 0) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: '#888', fontFamily: 'system-ui', fontSize: 13 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: '#888', fontFamily: 'system-ui', fontSize: 10 }}>
         No items selected. Close this tab and select parts or sets to print.
       </div>
     );
@@ -175,7 +178,7 @@ export default async function LabelsPage({
         }
 
         .label-sku {
-          font-size: 7pt;
+          font-size: 10pt;
           font-family: 'Courier New', Courier, monospace;
           color: #333;
           text-align: center;
@@ -189,14 +192,14 @@ export default async function LabelsPage({
         }
 
         .label-sku-fallback {
-          font-size: 7px;
+          font-size: 10px;
           font-family: monospace;
           color: #555;
           text-align: center;
         }
 
         .label-name {
-          font-size: 6pt;
+          font-size: 7pt;
           color: #222;
           text-align: center;
           white-space: nowrap;

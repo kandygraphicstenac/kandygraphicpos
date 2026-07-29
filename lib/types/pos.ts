@@ -16,7 +16,6 @@ export type PartResult = {
   sku: string;
   name: string;
   bikeModel: BikeModelInfo;
-  colorScheme: string | null;
   price: string;
   /** Included only when the authenticated user is OWNER; null for CASHIER. */
   cost: string | null;
@@ -26,7 +25,6 @@ export type PartResult = {
   uncutQty: number;
   imageUrl: string | null;
   soldSeparately: boolean;
-  isKit: boolean;
   exactMatch: boolean;
   locationCode: string | null;
 };

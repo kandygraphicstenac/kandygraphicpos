@@ -2,44 +2,58 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { SetCreateSchema } from '@/lib/validators/catalog';
+import { canEditCatalog } from '@/lib/permissions';
 import { Decimal } from '@prisma/client/runtime/library';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canEditCatalog(user.role)) return forbiddenResponse();
 
   const sp = request.nextUrl.searchParams;
   const modelId = sp.get('modelId') ? parseInt(sp.get('modelId')!, 10) : undefined;
   const q = sp.get('q')?.trim() ?? '';
+  const page = Math.max(1, parseInt(sp.get('page') ?? '1', 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt(sp.get('pageSize') ?? '25', 10)));
 
-  const sets = await prisma.stickerSet.findMany({
-    where: {
-      ...(modelId ? { bikeModelId: modelId } : {}),
-      ...(q
-        ? {
-            OR: [
-              { sku: { contains: q, mode: 'insensitive' } },
-              { name: { contains: q, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    },
-    orderBy: [{ bikeModelId: 'asc' }, { name: 'asc' }],
-    include: {
-      bikeModel: { select: { id: true, brand: true, model: true, year: true, yearEnd: true } },
-      components: {
-        include: {
-          part: { select: { id: true, name: true, sku: true, finishedStock: true, price: true } },
+  // Search + filter run in the query, not on a loaded array — at 5,000+ rows
+  // the client must never receive more than one page.
+  const where = {
+    ...(modelId ? { bikeModelId: modelId } : {}),
+    ...(q
+      ? {
+          OR: [
+            { sku: { contains: q, mode: 'insensitive' as const } },
+            { name: { contains: q, mode: 'insensitive' as const } },
+          ],
+        }
+      : {}),
+  };
+
+  const [sets, total] = await prisma.$transaction([
+    prisma.stickerSet.findMany({
+      where,
+      orderBy: [{ bikeModelId: 'asc' }, { name: 'asc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        bikeModel: { select: { id: true, brand: true, model: true, year: true, yearEnd: true } },
+        components: {
+          include: {
+            // `color` is needed so kit-contents rows can be told apart —
+            // several parts share a name and differ only by colour.
+            part: { select: { id: true, name: true, sku: true, finishedStock: true, price: true, color: true } },
+          },
         },
+        _count: { select: { invoiceItems: true } },
+        location: { select: { code: true, description: true } },
       },
-      _count: { select: { invoiceItems: true } },
-      location: { select: { code: true, description: true } },
-    },
-  });
+    }),
+    prisma.stickerSet.count({ where }),
+  ]);
 
-  return NextResponse.json(
-    sets.map((s) => ({
+  return NextResponse.json({
+    sets: sets.map((s) => ({
       id: s.id,
       sku: s.sku,
       name: s.name,
@@ -62,13 +76,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         },
       })),
     })),
-  );
+    total,
+    page,
+    pageSize,
+    pageCount: Math.ceil(total / pageSize),
+  });
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (!user) return unauthorizedResponse();
-  if (user.role !== 'OWNER') return forbiddenResponse();
+  if (!canEditCatalog(user.role)) return forbiddenResponse();
 
   let body: unknown;
   try { body = await request.json(); } catch {
@@ -97,7 +115,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         },
       },
       include: {
-        components: { include: { part: { select: { name: true, sku: true } } } },
+        components: { include: { part: { select: { name: true, sku: true, color: true } } } },
         bikeModel: { select: { id: true, brand: true, model: true, year: true, yearEnd: true } },
       },
     });
