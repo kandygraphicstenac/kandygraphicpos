@@ -18,6 +18,13 @@ import { createClient } from '@supabase/supabase-js';
  */
 const BUCKET = 'product-images';
 
+/**
+ * sharp is a native binary and cannot run on the Edge runtime. Route handlers
+ * default to Node, but this makes it explicit so the route can never be flipped
+ * to Edge by a config change without the failure being obvious here.
+ */
+export const runtime = 'nodejs';
+
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB, on the ORIGINAL upload
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -86,12 +93,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Defence in depth: never write an empty object even if sharp returns without
+  // throwing. A failed resize must produce no file at all.
+  if (!resized || resized.byteLength === 0) {
+    return NextResponse.json({ error: 'Image processing produced no output' }, { status: 500 });
+  }
+
   // Always .webp — the output format is fixed by the pipeline above.
   const path = `catalog/${Date.now()}-${randomUUID()}.webp`;
 
+  // Upload as a Blob, NOT a raw Node Buffer.
+  //
+  // Passing a Buffer here corrupted every image uploaded on Vercel while working
+  // fine on Windows: that runtime's fetch did not treat the Buffer as binary
+  // BodyInit and put it through a UTF-8 text path, so every byte that was not
+  // valid UTF-8 became U+FFFD (ef bf bd). The stored files kept their ASCII
+  // RIFF/WEBP headers, roughly doubled in size, and would not open. A Blob is
+  // unambiguously binary in every runtime.
+  const body = new Blob([new Uint8Array(resized)], { type: 'image/webp' });
+
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(path, resized, { contentType: 'image/webp', upsert: false });
+    .upload(path, body, { contentType: 'image/webp', upsert: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
