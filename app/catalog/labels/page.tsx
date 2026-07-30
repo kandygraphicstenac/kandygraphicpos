@@ -234,16 +234,32 @@ export default async function LabelsPage({
         }
 
         /*
-         * Bike model + colour on ONE line — the two facts that distinguish
-         * otherwise-identical labels ("Full Sticker Kit" exists for every bike).
-         * Combined rather than stacked because the A4 label is already at
-         * 22.97mm of its 23.2mm budget; this reuses the old colour line, so the
-         * vertical budget is UNCHANGED and the barcode keeps its full size.
-         *
-         * Laid out as flex so the two halves can shrink independently: the
-         * model may ellipsise, the colour never does (flex-shrink: 0). Colour
-         * is the faster discriminator on a rack, so it is the half that must
-         * always survive a squeeze.
+         * Bike model on its own line, directly under the SKU.
+         * A primary identifier, not secondary text: the same name recurs across
+         * hundreds of models, so this is often the only thing distinguishing
+         * two labels. Hence 7pt/500 in near-black rather than the faint 6.5pt
+         * grey it used when it shared a line with the colour.
+         * A full line to itself means realistic models no longer truncate.
+         */
+        .label-model {
+          font-size: 7pt;
+          font-weight: 500;
+          color: #222;
+          text-align: center;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 100%;
+          line-height: 1.15;
+          flex-shrink: 0;
+        }
+
+        /*
+         * Bottom line: name + colour together, keeping the label at four lines.
+         * Flex so the halves shrink independently — the NAME ellipsises and the
+         * colour never does (flex-shrink: 0 below). Colour is the fastest
+         * discriminator between otherwise-identical labels, so it is the half
+         * that must always survive a squeeze.
          */
         .label-meta {
           display: flex;
@@ -256,15 +272,12 @@ export default async function LabelsPage({
           flex-shrink: 0;
         }
 
-        /* Secondary: lighter and smaller than the colour, and the half that
-           truncates when the pair is too wide for the label. */
-        .label-model {
-          font-size: 6.5pt;
-          color: #444;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+        /* Flex-child overrides, scoped so .label-name still works as a plain
+           block when there is no colour (the location-label case). */
+        .label-meta .label-name {
           min-width: 0;
+          flex-shrink: 1;
+          max-width: none;
         }
 
         .label-meta-sep {

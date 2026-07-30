@@ -169,20 +169,26 @@ function LabelCard({
         <div className="label-sku-fallback">{item.sku}</div>
       )}
       <div className="label-sku">{item.sku}</div>
-      <div className="label-name">{item.name}</div>
-      {/* Bike model + colour share ONE line, so the label stays at four lines
-          and the vertical budget is unchanged. Each half is independently
-          optional: with only one present there is no dangling separator, and
-          with neither the element is not rendered at all — no empty line, no
-          stray flex gap, no layout shift. */}
-      {(item.model?.trim() || item.color?.trim()) && (
+
+      {/* Bike model on its own line: the same name recurs across hundreds of
+          models ("Full Sticker Kit" exists for every bike), so this is a
+          primary identifier. Omitted entirely when absent — no blank line. */}
+      {item.model?.trim() && <div className="label-model">{item.model}</div>}
+
+      {/* Name + colour share the bottom line, keeping the label at four lines.
+          When colour is present this is a flex row where the NAME truncates and
+          the colour never does (see .label-meta in the stylesheet) — colour is
+          the fastest discriminator between otherwise-identical labels.
+          With no colour the name renders as a plain block exactly as before,
+          which is what location labels (no colour, no model) still get. */}
+      {item.color?.trim() ? (
         <div className="label-meta">
-          {item.model?.trim() && <span className="label-model">{item.model}</span>}
-          {item.model?.trim() && item.color?.trim() && (
-            <span className="label-meta-sep">·</span>
-          )}
-          {item.color?.trim() && <span className="label-color">{item.color}</span>}
+          {item.name.trim() && <span className="label-name">{item.name}</span>}
+          {item.name.trim() && <span className="label-meta-sep">·</span>}
+          <span className="label-color">{item.color}</span>
         </div>
+      ) : (
+        item.name.trim() && <div className="label-name">{item.name}</div>
       )}
     </div>
   );
