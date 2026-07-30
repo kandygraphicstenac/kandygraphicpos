@@ -2,11 +2,36 @@ import { z } from 'zod';
 
 // ── Bike Models ───────────────────────────────────────────────────────────────
 
+/**
+ * Oldest enterable model year. Classic motorcycles well older than the previous
+ * 1990 floor are still on the road here and customers want stickers for them,
+ * so the bound exists only to catch obvious typos ("197", "19").
+ *
+ * Exported so the form's `min` attribute and this validator share one value —
+ * a client-only fix is not a fix, and two copies would drift.
+ */
+export const MIN_MODEL_YEAR = 1900;
+
+/**
+ * Newest enterable model year: next year's models are announced ahead of time,
+ * so the current year alone would hit the same wall from the other direction.
+ * +2 gives headroom while still rejecting nonsense like 2999 — which the old
+ * hardcoded 2100 ceiling happily accepted.
+ *
+ * A function, not a constant: evaluated per parse rather than at module load,
+ * so a long-running process can't freeze the ceiling at its start year across
+ * a New Year boundary.
+ */
+export function maxModelYear(): number {
+  return new Date().getFullYear() + 2;
+}
+
 const BikeModelObjectSchema = z.object({
   brand: z.string().min(1).max(80).trim(),
   model: z.string().min(1).max(80).trim(),
-  year: z.number().int().min(1990).max(2100),
-  yearEnd: z.number().int().min(1990).max(2100).nullable().optional(),
+  // Upper bound is applied in the refine below so it stays current.
+  year: z.number().int().min(MIN_MODEL_YEAR),
+  yearEnd: z.number().int().min(MIN_MODEL_YEAR).nullable().optional(),
   country: z.string().max(10).trim().nullable().optional(),
 });
 
@@ -14,6 +39,19 @@ function yearEndRefine(
   data: { year?: number; yearEnd?: number | null },
   ctx: z.RefinementCtx,
 ) {
+  const max = maxModelYear();
+
+  for (const field of ['year', 'yearEnd'] as const) {
+    const value = data[field];
+    if (value != null && value > max) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Year must be ${max} or earlier`,
+        path: [field],
+      });
+    }
+  }
+
   if (data.year != null && data.yearEnd != null && data.yearEnd < data.year) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

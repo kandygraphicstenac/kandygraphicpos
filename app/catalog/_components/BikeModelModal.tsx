@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { MIN_MODEL_YEAR, maxModelYear } from '@/lib/validators/catalog';
 
 type BikeModelForm = { brand: string; model: string; year: string; yearEnd: string; country: string };
 
@@ -15,6 +16,10 @@ interface Props {
 export function BikeModelModal({ existing, brandOptions, countryOptions, onClose }: Props) {
   const qc = useQueryClient();
   const isEdit = !!existing;
+
+  // Same bounds the server enforces — imported rather than repeated so the
+  // browser tooltip and the API can never disagree about what's valid.
+  const maxYear = maxModelYear();
 
   const [form, setForm] = useState<BikeModelForm>({
     brand: existing?.brand ?? '',
@@ -120,8 +125,8 @@ export function BikeModelModal({ existing, brandOptions, countryOptions, onClose
               <label className="text-[12px] font-medium text-text-2">Year from</label>
               <input
                 type="number"
-                min={1990}
-                max={2100}
+                min={MIN_MODEL_YEAR}
+                max={maxYear}
                 value={form.year}
                 onChange={(e) => set('year', e.target.value)}
                 className={inputCls}
@@ -135,8 +140,8 @@ export function BikeModelModal({ existing, brandOptions, countryOptions, onClose
               </label>
               <input
                 type="number"
-                min={1990}
-                max={2100}
+                min={MIN_MODEL_YEAR}
+                max={maxYear}
                 placeholder="e.g. 2019"
                 value={form.yearEnd}
                 onChange={(e) => set('yearEnd', e.target.value)}
