@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getLabelStockSettings, type LabelStockSettings } from '@/lib/services/settingsService';
 import { canPrintLabels } from '@/lib/permissions';
+import { modelLabel } from '@/lib/utils/modelLabel';
 import { LabelViewer, type LabelItem } from './LabelViewer';
 import { AutoPrint } from './AutoPrint';
 import type { LabelFormat } from '@/lib/utils/printLabels';
@@ -47,7 +48,9 @@ export default async function LabelsPage({
     .filter((n) => !isNaN(n) && n > 0)
     .slice(0, 200);
 
-  const qty = Math.max(1, Math.min(99, parseInt(qtyParam ?? '1', 10) || 1));
+  // Kept in step with MAX_COPIES in LabelViewer — a hand-edited ?qty= in the
+  // URL must be clamped the same way the control is.
+  const qty = Math.max(1, Math.min(200, parseInt(qtyParam ?? '1', 10) || 1));
   // Accept 'roll' as a legacy alias for 'thermal'
   const format: LabelFormat = (fmtParam === 'thermal' || fmtParam === 'roll') ? 'thermal' : 'a4';
 
@@ -113,7 +116,10 @@ export default async function LabelsPage({
   if (type === 'set') {
     const sets = await prisma.stickerSet.findMany({
       where: { id: { in: rawIds } },
-      select: { id: true, sku: true, name: true, setPrice: true },
+      select: {
+        id: true, sku: true, name: true, setPrice: true, color: true,
+        bikeModel: { select: { brand: true, model: true, year: true, yearEnd: true } },
+      },
     });
     items = await Promise.all(
       sets.map(async (s) => ({
@@ -121,13 +127,18 @@ export default async function LabelsPage({
         sku: s.sku,
         name: s.name,
         price: LKR.format(parseFloat(s.setPrice.toString())),
+        color: s.color,
+        model: modelLabel(s.bikeModel.brand, s.bikeModel.model, s.bikeModel.year, s.bikeModel.yearEnd),
         barcodeUrl: await makeBarcodeDataUrl(s.sku, barcodeScale),
       })),
     );
   } else {
     const parts = await prisma.part.findMany({
       where: { id: { in: rawIds } },
-      select: { id: true, sku: true, name: true, price: true },
+      select: {
+        id: true, sku: true, name: true, price: true, color: true,
+        bikeModel: { select: { brand: true, model: true, year: true, yearEnd: true } },
+      },
     });
     items = await Promise.all(
       parts.map(async (p) => ({
@@ -135,6 +146,8 @@ export default async function LabelsPage({
         sku: p.sku,
         name: p.name,
         price: p.price != null ? LKR.format(parseFloat(p.price.toString())) : '',
+        color: p.color,
+        model: modelLabel(p.bikeModel.brand, p.bikeModel.model, p.bikeModel.year, p.bikeModel.yearEnd),
         barcodeUrl: await makeBarcodeDataUrl(p.sku, barcodeScale),
       })),
     );
@@ -153,12 +166,19 @@ export default async function LabelsPage({
           body { background: white !important; }
         }
 
+        /*
+         * Vertical budget, A4 (the tighter format): 25mm − 1.8mm padding =
+         * 23.2mm. barcode 12.00 + 3 gaps 2.10 + sku 3.00 + name 2.96 +
+         * colour 2.91 = 22.97mm. The gap was reduced 1mm -> 0.7mm and the SKU
+         * 10pt -> 8.5pt to make room for the colour line; the barcode's
+         * width and max-height are deliberately UNCHANGED so it keeps scanning.
+         */
         .label {
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          gap: 1mm;
+          gap: 0.7mm;
           box-sizing: border-box;
           overflow: hidden;
           background: white;
@@ -178,7 +198,10 @@ export default async function LabelsPage({
         }
 
         .label-sku {
-          font-size: 10pt;
+          /* 8.5pt, down from 10pt: still plainly legible, and this line is a
+             human-readable convenience — the same value is encoded in the
+             barcode directly above it. */
+          font-size: 8.5pt;
           font-family: 'Courier New', Courier, monospace;
           color: #333;
           text-align: center;
@@ -207,6 +230,61 @@ export default async function LabelsPage({
           text-overflow: ellipsis;
           max-width: 100%;
           line-height: 1.2;
+          flex-shrink: 0;
+        }
+
+        /*
+         * Bike model + colour on ONE line — the two facts that distinguish
+         * otherwise-identical labels ("Full Sticker Kit" exists for every bike).
+         * Combined rather than stacked because the A4 label is already at
+         * 22.97mm of its 23.2mm budget; this reuses the old colour line, so the
+         * vertical budget is UNCHANGED and the barcode keeps its full size.
+         *
+         * Laid out as flex so the two halves can shrink independently: the
+         * model may ellipsise, the colour never does (flex-shrink: 0). Colour
+         * is the faster discriminator on a rack, so it is the half that must
+         * always survive a squeeze.
+         */
+        .label-meta {
+          display: flex;
+          align-items: baseline;
+          justify-content: center;
+          gap: 0.6mm;
+          max-width: 100%;
+          min-width: 0;
+          line-height: 1.1;
+          flex-shrink: 0;
+        }
+
+        /* Secondary: lighter and smaller than the colour, and the half that
+           truncates when the pair is too wide for the label. */
+        .label-model {
+          font-size: 6.5pt;
+          color: #444;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          min-width: 0;
+        }
+
+        .label-meta-sep {
+          font-size: 6.5pt;
+          color: #999;
+          flex-shrink: 0;
+        }
+
+        /*
+         * The heaviest text on the label. Uppercased in CSS only — it aids
+         * glance-reading off a rack and evens out inconsistent source casing
+         * ("Blue/Red" vs "red and green") without altering the stored value.
+         */
+        .label-color {
+          font-size: 7.5pt;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          color: #000;
+          white-space: nowrap;
           flex-shrink: 0;
         }
       `}</style>

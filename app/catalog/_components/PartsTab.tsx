@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { printLabels } from '@/lib/utils/printLabels';
 import { PartModal } from './PartModal';
 import { AdjustStockModal } from './AdjustStockModal';
+import { PrintLabelsModal } from './PrintLabelsModal';
 import { Pagination, DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { useDebounced } from '@/lib/hooks/useDebounced';
 import { partBadgeLabel } from '@/lib/utils/partBadge';
@@ -49,6 +49,7 @@ export function PartsTab({ canDelete }: Props) {
     | { type: 'create' }
     | { type: 'edit'; part: Part }
     | { type: 'adjust'; part: Part }
+    | { type: 'labels'; ids: number[] }
     | null
   >(null);
 
@@ -180,7 +181,7 @@ export function PartsTab({ canDelete }: Props) {
           {selected.size > 0 && (
             <button
               type="button"
-              onClick={() => printLabels('part', [...selected])}
+              onClick={() => setModal({ type: 'labels', ids: [...selected] })}
               className="h-8 px-4 rounded-lg border border-border text-[12px] text-text-2 hover:text-text hover:border-border-hover transition-colors"
             >
               Print labels ({selected.size})
@@ -330,9 +331,9 @@ export function PartsTab({ canDelete }: Props) {
                       <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() => printLabels('part', [p.id])}
+                          onClick={() => setModal({ type: 'labels', ids: [p.id] })}
                           className="text-[12px] text-text-3 hover:text-text transition-colors"
-                          title="Open label preview (set qty + format, then print)"
+                          title="Choose how many copies, then print"
                         >
                           Label
                         </button>
@@ -387,6 +388,15 @@ export function PartsTab({ canDelete }: Props) {
           onPageChange={setPage}
           onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
           itemLabel="part"
+        />
+      )}
+
+      {modal?.type === 'labels' && (
+        <PrintLabelsModal
+          type="part"
+          ids={modal.ids}
+          itemLabel="part"
+          onClose={() => setModal(null)}
         />
       )}
 

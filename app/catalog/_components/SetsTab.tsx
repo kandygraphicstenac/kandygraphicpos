@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { printLabels } from '@/lib/utils/printLabels';
 import { SetModal } from './SetModal';
 import { AdjustStockModal } from './AdjustStockModal';
+import { PrintLabelsModal } from './PrintLabelsModal';
 import { Pagination, DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { useDebounced } from '@/lib/hooks/useDebounced';
 import { yearLabel } from '@/lib/utils/modelLabel';
@@ -43,6 +43,7 @@ export function SetsTab({ canDelete }: Props) {
     | { type: 'create' }
     | { type: 'edit'; set: StickerSet }
     | { type: 'adjust'; set: StickerSet }
+    | { type: 'labels'; ids: number[] }
     | null
   >(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -137,7 +138,7 @@ export function SetsTab({ canDelete }: Props) {
           {selected.size > 0 && (
             <button
               type="button"
-              onClick={() => printLabels('set', [...selected])}
+              onClick={() => setModal({ type: 'labels', ids: [...selected] })}
               className="h-8 px-4 rounded-lg border border-border text-[12px] text-text-2 hover:text-text hover:border-border-hover transition-colors"
             >
               Print labels ({selected.size})
@@ -237,9 +238,9 @@ export function SetsTab({ canDelete }: Props) {
                       <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() => printLabels('set', [s.id])}
+                          onClick={() => setModal({ type: 'labels', ids: [s.id] })}
                           className="text-[12px] text-text-3 hover:text-text transition-colors"
-                          title="Open label preview (set qty + format, then print)"
+                          title="Choose how many copies, then print"
                         >
                           Label
                         </button>
@@ -294,6 +295,15 @@ export function SetsTab({ canDelete }: Props) {
           onPageChange={setPage}
           onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
           itemLabel="set"
+        />
+      )}
+
+      {modal?.type === 'labels' && (
+        <PrintLabelsModal
+          type="set"
+          ids={modal.ids}
+          itemLabel="set"
+          onClose={() => setModal(null)}
         />
       )}
 

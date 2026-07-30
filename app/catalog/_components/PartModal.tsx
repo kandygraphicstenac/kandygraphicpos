@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { suggestPartSku } from '@/lib/utils/skuGen';
 import { LocationPicker } from './LocationPicker';
@@ -59,6 +59,23 @@ export function PartModal({ existing, onClose }: Props) {
     staleTime: 60_000,
   });
 
+  // Distinct part names across all models. Fetched once and cached: a few
+  // hundred names is a few KB, so filtering happens locally and instantly —
+  // no request per keystroke, hence no debounce needed here.
+  const { data: allNames = [] } = useQuery<string[]>({
+    queryKey: ['part-names'],
+    queryFn: () => fetch('/api/catalog/parts/names').then((r) => r.json()),
+    staleTime: 5 * 60_000,
+  });
+
+  // Cap the rendered options so the browser shows a short list rather than
+  // every name in the catalogue.
+  const nameSuggestions = useMemo(() => {
+    const q = form.name.trim().toLowerCase();
+    const pool = q ? allNames.filter((n) => n.toLowerCase().includes(q)) : allNames;
+    return pool.slice(0, 10);
+  }, [allNames, form.name]);
+
   useEffect(() => { firstRef.current?.focus(); }, []);
 
   const selectedModel = bikeModels.find((m) => m.id === parseInt(form.bikeModelId, 10));
@@ -112,6 +129,9 @@ export function PartModal({ existing, onClose }: Props) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['parts'] });
+      // Separate key, so the ['parts'] prefix above does not cover it: a name
+      // entered for the first time must become suggestible for the next part.
+      void qc.invalidateQueries({ queryKey: ['part-names'] });
       onClose();
     },
     onError: (e: Error) => setErr(e.message),
@@ -158,17 +178,26 @@ export function PartModal({ existing, onClose }: Props) {
             </select>
           </div>
 
-          {/* Name */}
+          {/* Name — autocompleted from existing part names.
+              A <datalist> never constrains the input, so a brand-new name can
+              always be typed freely; and picking a suggestion fires an ordinary
+              change event, so it goes through set('name', …) and the SKU
+              auto-suggest recomputes exactly as if it had been typed. */}
           <div className="space-y-1">
             <label className="text-[12px] font-medium text-text-2">Name</label>
             <input
               type="text"
+              list="part-name-opts"
+              autoComplete="off"
               placeholder="e.g. Tank Left"
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
               className={inputCls}
               required
             />
+            <datalist id="part-name-opts">
+              {nameSuggestions.map((n) => <option key={n} value={n} />)}
+            </datalist>
           </div>
 
           {/* SKU */}

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSavedLabelFormat, saveLabelFormat, type LabelFormat } from '@/lib/utils/printLabels';
+import { labelRowFill, MAX_COPIES } from '@/lib/utils/labelLayout';
 import type { LabelStockSettings } from '@/lib/services/settingsService';
 
 export type LabelItem = {
@@ -10,6 +11,19 @@ export type LabelItem = {
   sku: string;
   name: string;
   price: string;
+  /**
+   * Printed in full so two variants of the same part can be told apart on the
+   * rack. Several parts share a name ("tank left") and differ only by colour,
+   * which was otherwise readable only by decoding the SKU suffix (-RDBK/-BLBK).
+   * Absent for location labels; omitted from the layout entirely when empty.
+   */
+  color?: string | null;
+  /**
+   * "Bajaj Pulsar 150 2019" — built with modelLabel() so year ranges match the
+   * rest of the app. Shares one line with the colour to keep the label at four
+   * lines. Optional: location labels construct LabelItem without it.
+   */
+  model?: string | null;
   barcodeUrl: string;
 };
 
@@ -156,6 +170,20 @@ function LabelCard({
       )}
       <div className="label-sku">{item.sku}</div>
       <div className="label-name">{item.name}</div>
+      {/* Bike model + colour share ONE line, so the label stays at four lines
+          and the vertical budget is unchanged. Each half is independently
+          optional: with only one present there is no dangling separator, and
+          with neither the element is not rendered at all — no empty line, no
+          stray flex gap, no layout shift. */}
+      {(item.model?.trim() || item.color?.trim()) && (
+        <div className="label-meta">
+          {item.model?.trim() && <span className="label-model">{item.model}</span>}
+          {item.model?.trim() && item.color?.trim() && (
+            <span className="label-meta-sep">·</span>
+          )}
+          {item.color?.trim() && <span className="label-color">{item.color}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -188,13 +216,16 @@ export function LabelViewer({ items, initialQty, initialFormat, type, ids, label
   }
 
   function handleQtyChange(v: number) {
-    const clamped = Math.max(1, Math.min(99, v));
+    const clamped = Math.max(1, Math.min(MAX_COPIES, v));
     setQty(clamped);
     const params = new URLSearchParams({ type, ids, format, qty: String(clamped) });
     router.replace(`/catalog/labels?${params}`, { scroll: false });
   }
 
-  // Expand: each item repeated qty times
+  // Expand: each item repeated qty times, CONSECUTIVELY (A, A, B, B) so copies
+  // come off the roll grouped and are easy to separate onto one rack bin.
+  // Done here, before row grouping, so pagination and the @page rules below
+  // treat a 200-label batch exactly like any other list.
   const expanded: LabelItem[] = [];
   for (const item of items) {
     for (let i = 0; i < qty; i++) expanded.push(item);
@@ -206,12 +237,20 @@ export function LabelViewer({ items, initialQty, initialFormat, type, ids, label
     ? { width: `${labelStock.widthMm}mm`, height: `${labelStock.heightMm}mm`, padding: `${labelStock.paddingMm}mm` }
     : { width: '38mm', height: '25mm', padding: '1mm 1mm 0.8mm' };
 
-  // Group labels into rows of `columns` for thermal; for A4 keep flat
+  // Group labels into rows of `columns` for thermal; for A4 keep flat.
+  // `columns` comes from the saved Thermal label stock setting — never a
+  // hardcoded 2 — so changing the stock in Settings changes this with it.
   const columns = isThermal ? labelStock.columns : 5;
   const rows: LabelItem[][] = [];
   for (let i = 0; i < expanded.length; i += columns) {
     rows.push(expanded.slice(i, i + columns));
   }
+
+  // How the batch lands on the stock. Informational only — the quantity is
+  // never rounded up and no filler label is ever added; the user decides
+  // whether a part-empty last row is acceptable.
+  const totalLabels = expanded.length;
+  const { totalRows, blanks } = labelRowFill(totalLabels, columns);
 
   // Hint string for thermal format toolbar
   const thermalHint = labelStock
@@ -252,13 +291,13 @@ export function LabelViewer({ items, initialQty, initialFormat, type, ids, label
 
         {/* Qty input */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 12, color: '#6b6b66' }}>Qty per item</span>
+          <span style={{ fontSize: 12, color: '#6b6b66' }}>Copies each</span>
           <button type="button" onClick={() => handleQtyChange(qty - 1)}
             style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #e4e4e0', background: 'none', fontSize: 16, cursor: 'pointer', lineHeight: 1 }}>
             −
           </button>
           <input
-            type="number" min={1} max={99} value={qty}
+            type="number" min={1} max={MAX_COPIES} value={qty}
             onChange={(e) => handleQtyChange(parseInt(e.target.value, 10) || 1)}
             style={{ width: 44, height: 28, borderRadius: 6, border: '1px solid #e4e4e0', textAlign: 'center', fontSize: 13, padding: '0 4px' }}
           />
@@ -268,9 +307,24 @@ export function LabelViewer({ items, initialQty, initialFormat, type, ids, label
           </button>
         </div>
 
-        {/* Summary */}
+        {/* Summary + how it lands on the stock */}
         <span style={{ fontSize: 12, color: '#9c9c96' }}>
-          {items.length} item{items.length !== 1 ? 's' : ''} × {qty} = {expanded.length} label{expanded.length !== 1 ? 's' : ''}
+          {items.length} item{items.length !== 1 ? 's' : ''} × {qty} = {totalLabels} label{totalLabels !== 1 ? 's' : ''}
+          {totalLabels > 0 && (
+            <>
+              {' — '}
+              {blanks === 0 ? (
+                <span style={{ color: '#6b6b66' }}>
+                  fills {totalRows} row{totalRows !== 1 ? 's' : ''} of {columns}
+                </span>
+              ) : (
+                <span style={{ color: '#8a6d1f', fontWeight: 500 }}>
+                  {totalRows} row{totalRows !== 1 ? 's' : ''} of {columns}, last row has{' '}
+                  {blanks} blank{blanks !== 1 ? 's' : ''}
+                </span>
+              )}
+            </>
+          )}
         </span>
 
         <span style={{ fontSize: 11, color: '#b0b0aa', marginLeft: 4 }}>
