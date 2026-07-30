@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { printLabels, getSavedLabelFormat, type LabelFormat } from '@/lib/utils/printLabels';
+import { printLabels, type LabelFormat } from '@/lib/utils/printLabels';
 import { labelRowFill, columnsForFormat, MAX_COPIES } from '@/lib/utils/labelLayout';
 
 type LabelStock = { widthMm: number; heightMm: number; columns: number; columnGapMm: number; paddingMm: number };
@@ -26,10 +26,6 @@ interface Props {
  */
 export function PrintLabelsModal({ type, ids, itemLabel, onClose }: Props) {
   const [qty, setQty] = useState(1);
-  // Lazy initialiser rather than an effect: this modal is only ever mounted by
-  // a click, so it never renders during SSR/hydration and can read localStorage
-  // directly. The format can't change while the dialog is open, so no setter.
-  const [format] = useState<LabelFormat>(() => getSavedLabelFormat());
   const qtyRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { qtyRef.current?.select(); }, []);
@@ -40,14 +36,25 @@ export function PrintLabelsModal({ type, ids, itemLabel, onClose }: Props) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // GET is auth-only (only PUT is OWNER-gated), so a CUTTER can read this too.
+  // Both are shop-wide settings; GET on each is auth-only (only PUT is
+  // OWNER-gated), so a CASHIER or CUTTER can read them to print correctly.
   const { data: stock } = useQuery<LabelStock>({
     queryKey: ['label-stock'],
     queryFn: () => fetch('/api/settings/label-stock').then((r) => r.json()),
     staleTime: 5 * 60_000,
   });
 
-  const columns = columnsForFormat(format, stock?.columns);
+  const { data: formatData } = useQuery<{ format: LabelFormat }>({
+    queryKey: ['label-format'],
+    queryFn: () => fetch('/api/settings/label-format').then((r) => r.json()),
+    staleTime: 5 * 60_000,
+  });
+
+  // Only affects the row-fill preview below. The print itself never depends on
+  // this resolving: /catalog/labels reads the format server-side, so a slow
+  // fetch here can't cause a fallback-to-A4 print.
+  const format = formatData?.format;
+  const columns = columnsForFormat(format ?? 'thermal', stock?.columns);
   const totalLabels = ids.length * qty;
   const { totalRows, blanks } = labelRowFill(totalLabels, columns);
 
@@ -73,8 +80,7 @@ export function PrintLabelsModal({ type, ids, itemLabel, onClose }: Props) {
             <h2 className="text-[15px] font-semibold">Print labels</h2>
             <p className="text-[12px] text-text-3 mt-0.5">
               {ids.length} {itemLabel}{ids.length !== 1 ? 's' : ''} selected
-              {' · '}
-              {format === 'thermal' ? 'thermal' : 'A4'} format
+              {format && ` · ${format === 'thermal' ? 'thermal' : 'A4'} format`}
             </p>
           </div>
           <button type="button" onClick={onClose} className="text-text-3 hover:text-text transition-colors">

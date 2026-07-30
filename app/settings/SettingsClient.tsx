@@ -5,11 +5,7 @@ import { ASSIGNABLE_ROLES, ROLE_LABELS } from '@/lib/permissions';
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { CompanyRecord } from '@/lib/types/company';
-import {
-  getSavedLabelFormat,
-  saveLabelFormat,
-  type LabelFormat,
-} from '@/lib/utils/printLabels';
+import { type LabelFormat } from '@/lib/utils/printLabels';
 import type { LabelStockSettings } from '@/lib/services/settingsService';
 
 // ─── Company form ─────────────────────────────────────────────────────────────
@@ -204,23 +200,46 @@ const FORMAT_OPTS: { value: LabelFormat; label: string; description: string }[] 
 ];
 
 function LabelFormatSettings() {
-  const [format, setFormat] = useState<LabelFormat>('a4');
+  const qc = useQueryClient();
   const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => { setFormat(getSavedLabelFormat()); }, []);
+  // Shop-wide, from the server — not this browser. Previously localStorage,
+  // which meant a new account never saw the owner's choice and printed A4.
+  const { data, isLoading } = useQuery<{ format: LabelFormat }>({
+    queryKey: ['label-format'],
+    queryFn: () => fetch('/api/settings/label-format').then((r) => r.json()),
+    staleTime: 5 * 60_000,
+  });
+  const format = data?.format;
 
-  function handleSave(f: LabelFormat) {
-    setFormat(f);
-    saveLabelFormat(f);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
+  const mutation = useMutation({
+    mutationFn: async (f: LabelFormat) => {
+      const res = await fetch('/api/settings/label-format', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: f }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error ?? 'Could not save');
+      }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['label-format'] });
+      setErr(null);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    },
+    onError: (e: Error) => setErr(e.message),
+  });
 
   return (
     <div className="bg-surface border border-border rounded-xl p-5 space-y-4">
       <h2 className="text-[14px] font-medium text-text">Label format</h2>
       <p className="text-[12px] text-text-3 -mt-2">
-        Default format used when printing from the Catalog.
+        Applies to everyone in the shop — it describes the printer, not a personal
+        preference. Staff cannot override it when printing.
       </p>
       <div className="space-y-2">
         {FORMAT_OPTS.map((o) => (
@@ -230,7 +249,8 @@ function LabelFormatSettings() {
               name="labelFormat"
               value={o.value}
               checked={format === o.value}
-              onChange={() => handleSave(o.value)}
+              disabled={isLoading || mutation.isPending}
+              onChange={() => mutation.mutate(o.value)}
               className="mt-0.5 accent-accent"
             />
             <div>
@@ -240,7 +260,8 @@ function LabelFormatSettings() {
           </label>
         ))}
       </div>
-      {saved && <p className="text-[12px] text-ok-fg">Saved to this browser</p>}
+      {err && <p className="text-[12px] text-danger-fg">{err}</p>}
+      {saved && <p className="text-[12px] text-ok-fg">Saved for all users</p>}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getSavedLabelFormat, saveLabelFormat, type LabelFormat } from '@/lib/utils/printLabels';
+import { type LabelFormat } from '@/lib/utils/printLabels';
 import { labelRowFill, MAX_COPIES } from '@/lib/utils/labelLayout';
 import type { LabelStockSettings } from '@/lib/services/settingsService';
 
@@ -199,32 +199,20 @@ function LabelCard({
 export function LabelViewer({ items, initialQty, initialFormat, type, ids, labelStock }: Props) {
   const router = useRouter();
   const [qty, setQty] = useState(initialQty);
-  const [format, setFormat] = useState<LabelFormat>(initialFormat);
 
-  // Sync from localStorage on mount (client may differ from URL default)
-  useEffect(() => {
-    const stored = getSavedLabelFormat();
-    if (stored !== initialFormat) {
-      setFormat(stored);
-      const params = new URLSearchParams({ type, ids, format: stored, qty: String(qty) });
-      router.replace(`/catalog/labels?${params}`, { scroll: false });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Fixed for the life of the page: resolved server-side from the shop-wide
+  // AppSetting. There is deliberately no switcher here — the format describes
+  // the shop's one printer, and a per-page toggle writing to the browser is
+  // exactly what let a new account print A4 to the thermal unit. Only an OWNER
+  // changes it, in Settings.
+  const format: LabelFormat = initialFormat;
 
   usePageCss(format, labelStock);
-
-  function handleFormatChange(f: LabelFormat) {
-    setFormat(f);
-    saveLabelFormat(f);
-    const params = new URLSearchParams({ type, ids, format: f, qty: String(qty) });
-    router.replace(`/catalog/labels?${params}`, { scroll: false });
-  }
 
   function handleQtyChange(v: number) {
     const clamped = Math.max(1, Math.min(MAX_COPIES, v));
     setQty(clamped);
-    const params = new URLSearchParams({ type, ids, format, qty: String(clamped) });
+    const params = new URLSearchParams({ type, ids, qty: String(clamped) });
     router.replace(`/catalog/labels?${params}`, { scroll: false });
   }
 
@@ -270,29 +258,21 @@ export function LabelViewer({ items, initialQty, initialFormat, type, ids, label
         display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12,
         padding: '10px 16px', background: '#fff', borderBottom: '1px solid #e4e4e0',
       }}>
-        {/* Format selector */}
+        {/* Format — read-only. Shop-wide; only an OWNER changes it in Settings. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 12, color: '#6b6b66', marginRight: 4 }}>Format</span>
-          {FORMAT_OPTS.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              title={o.hint}
-              onClick={() => handleFormatChange(o.value)}
-              style={{
-                height: 30, padding: '0 12px', borderRadius: 999, fontSize: 12, fontWeight: 500,
-                border: format === o.value ? 'none' : '1px solid #e4e4e0',
-                background: format === o.value ? '#0F6E56' : 'transparent',
-                color: format === o.value ? '#fff' : '#6b6b66',
-                cursor: 'pointer',
-              }}
-            >
-              {o.label}
-            </button>
-          ))}
+          <span style={{ fontSize: 12, color: '#6b6b66' }}>Format</span>
+          <span style={{
+            height: 30, padding: '0 12px', borderRadius: 999, fontSize: 12, fontWeight: 500,
+            background: '#0F6E56', color: '#fff', display: 'inline-flex', alignItems: 'center',
+          }}>
+            {isThermal ? 'Thermal printer' : 'A4 sheet'}
+          </span>
           {isThermal && (
             <span style={{ fontSize: 11, color: '#9c9c96', marginLeft: 2 }}>{thermalHint}</span>
           )}
+          <span style={{ fontSize: 11, color: '#b0b0aa', marginLeft: 2 }}>
+            · set in Settings
+          </span>
         </div>
 
         {/* Qty input */}

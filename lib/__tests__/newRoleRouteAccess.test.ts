@@ -26,6 +26,7 @@ vi.mock('@/lib/db', () => {
     findFirst: vi.fn(() => Promise.resolve(null)),
     create: vi.fn(() => Promise.resolve({ id: 1 })),
     update: vi.fn(() => Promise.resolve({ id: 1 })),
+    upsert: vi.fn(() => Promise.resolve({ id: 1 })),
     delete: vi.fn(() => Promise.resolve({ id: 1 })),
     deleteMany: vi.fn(() => Promise.resolve({ count: 0 })),
   };
@@ -137,6 +138,49 @@ const PROTECTED: { module: string; label: string; call: () => Promise<Response> 
     call: async () => (await import('@/app/api/admin/users/route')).GET(),
   },
 ];
+
+// ── Label format: readable by everyone who prints, writable by OWNER only ────
+// It describes the shop's one printer, so CASHIER/CUTTER must be able to READ
+// it without Settings access — but must not be able to change how the whole
+// shop prints.
+
+describe('label format is readable by every authenticated role', () => {
+  for (const role of ['OWNER', 'CASHIER', 'CUTTER', 'SALES', 'ACCOUNT'] as Role[]) {
+    it(`${role} can GET it`, async () => {
+      const { GET } = await import('@/app/api/settings/label-format/route');
+      asRole(role);
+      expect((await GET()).status).not.toBe(403);
+    });
+  }
+});
+
+describe('only OWNER may change the shop-wide label format', () => {
+  const put = () => new NextRequest('http://localhost/api/settings/label-format', {
+    method: 'PUT',
+    body: JSON.stringify({ format: 'a4' }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  for (const role of ['CASHIER', 'CUTTER', 'SALES', 'ACCOUNT'] as Role[]) {
+    it(`${role} gets 403`, async () => {
+      const { PUT } = await import('@/app/api/settings/label-format/route');
+      asRole(role);
+      expect((await PUT(put())).status).toBe(403);
+    });
+  }
+
+  it('OWNER is allowed', async () => {
+    const { PUT } = await import('@/app/api/settings/label-format/route');
+    asRole('OWNER');
+    expect((await PUT(put())).status).not.toBe(403);
+  });
+
+  it('unauthenticated gets 401', async () => {
+    const { PUT } = await import('@/app/api/settings/label-format/route');
+    mockGetCurrentUser.mockResolvedValue(null);
+    expect((await PUT(put())).status).toBe(401);
+  });
+});
 
 for (const role of NEW_ROLES) {
   describe(`${role} is refused by every module endpoint`, () => {

@@ -1,18 +1,18 @@
-// 'thermal' was previously called 'roll' — we migrate the stored value on read.
+// 'thermal' was previously called 'roll'; getLabelFormat() still accepts it.
 export type LabelFormat = 'a4' | 'thermal';
 
-export const LABEL_FORMAT_KEY = 'labelFormat';
-
-export function getSavedLabelFormat(): LabelFormat {
-  if (typeof window === 'undefined') return 'a4';
-  const v = window.localStorage.getItem(LABEL_FORMAT_KEY);
-  // Migrate legacy 'roll' value to 'thermal'
-  return v === 'thermal' || v === 'roll' ? 'thermal' : 'a4';
-}
-
-export function saveLabelFormat(f: LabelFormat): void {
-  if (typeof window !== 'undefined') window.localStorage.setItem(LABEL_FORMAT_KEY, f);
-}
+/**
+ * The label format is NOT stored here any more.
+ *
+ * It used to live in window.localStorage, which made it per browser profile:
+ * a newly created account had never written the key, silently fell back to A4,
+ * and printed an A4 grid to the shop's thermal printer. It is now a shop-wide
+ * AppSetting, read server-side by /catalog/labels (see getLabelFormat in
+ * settingsService) and changeable only by an OWNER in Settings.
+ *
+ * Because the page resolves the format on the server, printing can never race
+ * an unresolved fetch and fall back to a built-in default.
+ */
 
 function printViaIframe(params: URLSearchParams): void {
   const iframe = document.createElement('iframe');
@@ -49,11 +49,10 @@ export function printLabels(
   opts: { qty?: number } = {},
 ): void {
   if (ids.length === 0) return;
-  const format = getSavedLabelFormat();
+  // No `format` param — the page resolves the shop-wide setting server-side.
   printViaIframe(new URLSearchParams({
     type,
     ids: ids.join(','),
-    format,
     qty: String(opts.qty ?? 1),
     autoprint: '1',
   }));
@@ -62,11 +61,9 @@ export function printLabels(
 /** Prints location barcode labels (one per code). Codes are shelf/rack codes, e.g. "A-1". */
 export function printLocationLabels(codes: string[]): void {
   if (codes.length === 0) return;
-  const format = getSavedLabelFormat();
   printViaIframe(new URLSearchParams({
     type: 'location',
     ids: codes.join(','),
-    format,
     qty: '1',
     autoprint: '1',
   }));

@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import bwipjs from 'bwip-js/node';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { getLabelStockSettings, type LabelStockSettings } from '@/lib/services/settingsService';
+import { getLabelStockSettings, getLabelFormat, type LabelStockSettings } from '@/lib/services/settingsService';
 import { canPrintLabels } from '@/lib/permissions';
 import { modelLabel } from '@/lib/utils/modelLabel';
 import { LabelViewer, type LabelItem } from './LabelViewer';
@@ -33,14 +33,16 @@ async function makeBarcodeDataUrl(text: string, scale: number): Promise<string> 
 export default async function LabelsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string; ids?: string; qty?: string; format?: string; autoprint?: string }>;
+  // No `format` param: the label format is a shop-wide setting resolved on the
+  // server below, not something a caller (or a hand-edited URL) can override.
+  searchParams: Promise<{ type?: string; ids?: string; qty?: string; autoprint?: string }>;
 }) {
   const user = await getCurrentUser();
   // OWNER and CUTTER print from the catalog, CASHIER reprints from the POS.
   // Allow-listed so newly added roles don't inherit label printing.
   if (!user || !canPrintLabels(user.role)) redirect('/');
 
-  const { type, ids: idsParam, qty: qtyParam, format: fmtParam, autoprint } = await searchParams;
+  const { type, ids: idsParam, qty: qtyParam, autoprint } = await searchParams;
 
   const rawIds = (idsParam ?? '')
     .split(',')
@@ -51,8 +53,11 @@ export default async function LabelsPage({
   // Kept in step with MAX_COPIES in LabelViewer — a hand-edited ?qty= in the
   // URL must be clamped the same way the control is.
   const qty = Math.max(1, Math.min(200, parseInt(qtyParam ?? '1', 10) || 1));
-  // Accept 'roll' as a legacy alias for 'thermal'
-  const format: LabelFormat = (fmtParam === 'thermal' || fmtParam === 'roll') ? 'thermal' : 'a4';
+  // Resolved server-side from the shop-wide AppSetting. Reading it here rather
+  // than in the browser is what stops a print firing before an async fetch
+  // resolves and silently falling back to A4 — the cause of new accounts
+  // printing an A4 grid to the thermal printer.
+  const format: LabelFormat = await getLabelFormat();
 
   // Thermal format reads label stock dimensions from AppSetting (DB).
   // A4 format uses hardcoded 38×25mm grid — no DB read needed.
