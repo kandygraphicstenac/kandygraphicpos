@@ -51,6 +51,7 @@ export function SetDetailModal({ setId, onAddToCart, onClose }: Props) {
       sku: detail.sku,
       name: detail.name,
       bikeModel: detail.bikeModel,
+      color: detail.color,
       price: detail.price,
       imageUrl: detail.imageUrl,
       packedStock: detail.packedStock,

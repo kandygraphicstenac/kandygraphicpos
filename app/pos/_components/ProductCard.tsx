@@ -105,15 +105,28 @@ export const ProductCard = forwardRef<HTMLButtonElement, Props>(function Product
           </span>
         </div>
 
-        {/* Name */}
+        {/* Bike model leads: hundreds of products share a name ("Full Set"),
+            so the model is the identifying fact, not the name. Mirrors the
+            printed label — model on its own line, then "name · COLOUR" — so a
+            labelled item in hand matches what's on screen. */}
         <p className="text-[14px] font-medium leading-snug text-text line-clamp-2">
-          {result.name}
+          {result.bikeModel.brand} {result.bikeModel.model}{' '}
+          {yearLabel(result.bikeModel.year, result.bikeModel.yearEnd)}
         </p>
 
-        {/* Model + year */}
-        <p className="text-[12px] text-text-2 truncate">
-          {result.bikeModel.brand} {result.bikeModel.model} {yearLabel(result.bikeModel.year, result.bikeModel.yearEnd)}
-        </p>
+        {/* Name + colour. Flex so the NAME truncates and the colour never does
+            — colour is the discriminator between otherwise-identical cards. */}
+        <div className="flex items-baseline gap-1 text-[12px] min-w-0">
+          <span className="text-text-2 truncate min-w-0">{result.name}</span>
+          {result.color?.trim() && (
+            <>
+              <span className="text-text-3 shrink-0">·</span>
+              <span className="font-semibold uppercase tracking-wide text-text shrink-0">
+                {result.color}
+              </span>
+            </>
+          )}
+        </div>
 
         {/* Location tag */}
         {result.locationCode && (

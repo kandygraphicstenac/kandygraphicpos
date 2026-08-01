@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import type { CartItem, SaleStatus, HeldSaleRecord } from './_types';
+import { yearLabel } from '@/lib/utils/modelLabel';
 import type { CompanyRecord } from '@/lib/types/company';
 import type { CustomerRecord } from '@/lib/types/customer';
 import { CustomerPicker } from './CustomerPicker';
@@ -394,6 +395,29 @@ export function CartPanel({
                 <div className="flex items-start gap-2 mb-2">
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] text-text leading-snug truncate">{item.product.name}</p>
+                    {/* Bike model + colour: without these, a red and a blue kit —
+                        or the same kit for two bikes — are indistinguishable
+                        lines right before payment. The panel is narrow, so the
+                        MODEL truncates and the colour never does. Renders
+                        nothing at all when both are absent. */}
+                    {(item.product.bikeModel || item.product.color?.trim()) && (
+                      <div className="flex items-baseline gap-1 text-[11px] mt-0.5 min-w-0">
+                        {item.product.bikeModel && (
+                          <span className="text-text-3 truncate min-w-0">
+                            {item.product.bikeModel.brand} {item.product.bikeModel.model}{' '}
+                            {yearLabel(item.product.bikeModel.year, item.product.bikeModel.yearEnd)}
+                          </span>
+                        )}
+                        {item.product.bikeModel && item.product.color?.trim() && (
+                          <span className="text-text-3 shrink-0">·</span>
+                        )}
+                        {item.product.color?.trim() && (
+                          <span className="font-semibold uppercase tracking-wide text-text-2 shrink-0">
+                            {item.product.color}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <p className="text-[11px] text-text-3 tabular-nums mt-0.5">
                       {LKR.format(parseFloat(item.unitPrice))} each
                     </p>

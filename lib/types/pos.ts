@@ -16,6 +16,12 @@ export type PartResult = {
   sku: string;
   name: string;
   bikeModel: BikeModelInfo;
+  /**
+   * Shown on the product card and cart line. Hundreds of products share a name
+   * ("Full Set", "Tank left"); bike model and colour are what tell them apart,
+   * so the till needs both to avoid selling the wrong variant.
+   */
+  color: string | null;
   price: string;
   /** Included only when the authenticated user is OWNER; null for CASHIER. */
   cost: string | null;
@@ -35,6 +41,8 @@ export type SetResult = {
   sku: string;
   name: string;
   bikeModel: BikeModelInfo;
+  /** See PartResult.color — kits collide on name even more than parts do. */
+  color: string | null;
   price: string;
   imageUrl: string | null;
   packedStock: number;
@@ -98,6 +106,8 @@ export type SetDetailResult = {
   sku: string;
   name: string;
   bikeModel: BikeModelInfo;
+  /** Carried so a kit added from this modal reaches the cart with its colour. */
+  color: string | null;
   price: string;
   imageUrl: string | null;
   packedStock: number;

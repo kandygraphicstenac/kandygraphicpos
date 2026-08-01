@@ -38,6 +38,7 @@ type RawPartRow = {
   id: number;
   sku: string;
   name: string;
+  color: string | null;
   price: string;    // NUMERIC cast ::text
   cost: string | null;
   finishedStock: number;
@@ -57,6 +58,7 @@ type RawSetRow = {
   id: number;
   sku: string;
   name: string;
+  color: string | null;
   price: string;    // NUMERIC cast ::text
   imageUrl: string | null;
   packedStock: number;
@@ -186,6 +188,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         p.id,
         p.sku,
         p.name,
+        p.color,
         p.price::text           AS price,
         p.cost::text            AS cost,
         p."finishedStock"::int  AS "finishedStock",
@@ -218,6 +221,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         s.id,
         s.sku,
         s.name,
+        s.color,
         s."setPrice"::text   AS price,
         s."imageUrl",
         s."packedStock"::int AS "packedStock",
@@ -253,6 +257,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     sku: p.sku,
     name: p.name,
     bikeModel: { brand: p.brand, model: p.model, year: p.year, yearEnd: p.yearEnd, country: p.country },
+    color: p.color,
     price: p.price,
     cost: showCost && p.cost != null ? p.cost : null,
     finishedStock: p.finishedStock,
@@ -270,6 +275,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     sku: s.sku,
     name: s.name,
     bikeModel: { brand: s.brand, model: s.model, year: s.year, yearEnd: s.yearEnd, country: s.country },
+    color: s.color,
     price: s.price,
     imageUrl: s.imageUrl,
     packedStock: s.packedStock,

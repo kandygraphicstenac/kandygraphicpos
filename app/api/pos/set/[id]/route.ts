@@ -29,6 +29,7 @@ export async function GET(
       imageUrl: true,
       packedStock: true,
       locationCode: true,
+      color: true,
       bikeModel: { select: { brand: true, model: true, year: true, yearEnd: true, country: true } },
       components: {
         select: {
@@ -68,6 +69,7 @@ export async function GET(
     sku: s.sku,
     name: s.name,
     bikeModel: s.bikeModel,
+    color: s.color,
     price: s.setPrice.toString(),
     imageUrl: s.imageUrl,
     packedStock: s.packedStock,
